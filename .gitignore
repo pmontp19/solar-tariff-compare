@@ -1,0 +1,24 @@
+# Binaris i builds
+/stc
+/solar-tariff-compare
+/solar-tariff-compare.exe
+/dist/
+*.exe
+*.dll
+*.so
+*.dylib
+
+# Go
+vendor/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+
+# Local
+.env
+*.local

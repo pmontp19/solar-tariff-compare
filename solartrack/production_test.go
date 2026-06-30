@@ -1,0 +1,71 @@
+package solartrack
+
+import (
+	"testing"
+	"time"
+)
+
+func TestOverlayProduccio(t *testing.T) {
+	loc, _ := time.LoadLocation("Europe/Madrid")
+	// Consum: dues hores, una amb sol i una sense
+	consum := map[time.Time]float64{
+		time.Date(2025, 6, 15, 13, 0, 0, 0, loc): 0.5, // migdia estiu, poc consum
+		time.Date(2025, 6, 15, 23, 0, 0, 0, loc): 1.0, // nit, sense sol
+	}
+	// Perfil: al juny hora 13 = 3 kW; hora 23 = 0
+	perfil := &PerfilProd{}
+	perfil.ByMonthHour[5][13] = 3.0 // juny (índex 5), 13h
+	perfil.ByMonthHour[5][23] = 0
+
+	r := OverlayProduccio(consum, perfil)
+	// Producció = 3 kWh (només 1 hora amb sol); autoconsum = min(3, 0.5)=0.5; excedents=2.5
+	if r.ProduccioKWh != 3.0 {
+		t.Errorf("producció esperada 3.0, got %.2f", r.ProduccioKWh)
+	}
+	if r.AutoconsumKWh != 0.5 {
+		t.Errorf("autoconsum esperat 0.5, got %.2f", r.AutoconsumKWh)
+	}
+	if r.ExcedentsKWh != 2.5 {
+		t.Errorf("excedents esperats 2.5, got %.2f", r.ExcedentsKWh)
+	}
+	if r.IndexAutocons < 0.16 || r.IndexAutocons > 0.17 {
+		t.Errorf("índex autoconsum esperat ~0.167, got %.3f", r.IndexAutocons)
+	}
+}
+
+func TestParsePVGISTime(t *testing.T) {
+	cases := []struct {
+		in      string
+		mes, hr int
+		ok      bool
+	}{
+		{"20210615:1300", 5, 13, true}, // juny, 13h
+		{"20211201:0000", 11, 0, true}, // desembre, 0h
+		{"bad", 0, 0, false},
+	}
+	for _, c := range cases {
+		m, h, ok := parsePVGISTime(c.in)
+		if ok != c.ok || (ok && (m != c.mes || h != c.hr)) {
+			t.Errorf("parsePVGISTime(%q): got (%d,%d,%v), want (%d,%d,%v)",
+				c.in, m, h, ok, c.mes, c.hr, c.ok)
+		}
+	}
+}
+
+// TestFetchPerfilPVGIS_Live: test d'integració contra PVGIS (Barcelona, 3.5 kWp).
+func TestFetchPerfilPVGIS_Live(t *testing.T) {
+	if v := testEnv("SOLARTRACK_SKIP_LIVE"); v != "" {
+		t.Skip("test d'integració saltat")
+	}
+	perfil, err := FetchPerfilPVGIS(PVGISParams{
+		Lat: 41.38, Lon: 2.17, PeakPower: 3.5, Angle: 35, Aspect: 0,
+	})
+	if err != nil {
+		t.Fatalf("FetchPerfilPVGIS: %v", err)
+	}
+	// 3.5 kWp a Barcelona ~5000-6000 kWh/any
+	if perfil.AnualKWh < 4000 || perfil.AnualKWh > 8000 {
+		t.Errorf("producció anual esperada 4000-8000, got %.0f", perfil.AnualKWh)
+	}
+	t.Logf("OK PVGIS: %.0f kWh/any (3.5 kWp BCN)", perfil.AnualKWh)
+}
