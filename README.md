@@ -123,7 +123,7 @@ També accepta la variant de 7 columnes amb excedents (`AS_KWh`) i autoconsum (`
 3. **Consulta l'API pública de la CNMC** (`/api/publico/ofertas/electricidad`) amb el consum agregat i l'autoconsum.
 4. **Ordena** les ofertes per import del primer any.
 
-Vegeu `CNMC-API-INVESTIGACIO.md` per al reverse engineering de l'API.
+Vegeu [`docs/CNMC-API.md`](docs/CNMC-API.md) per al reverse engineering de l'API.
 
 ## Desenvolupament
 
