@@ -1,67 +1,67 @@
-# Comparador CNMC — Reverse Engineering de l'API
+# Comparador CNMC — Reverse Engineering del API
 
-Documentació de com funciona l'API pública del comparador d'ofertes d'electricitat
-de la CNMC, que aquesta eina fa servir. Obtinguda per observació del tràfic de
-`https://comparador.cnmc.gob.es/` (maig 2026, versió de l'app v2.1.3).
+Documentación de cómo funciona el API pública del comparador de ofertas de
+electricidad de la CNMC, que usa esta herramienta. Obtenida por observación del
+tráfico de `https://comparador.cnmc.gob.es/` (mayo 2026, versión de la app v2.1.3).
 
-## Com funciona el comparador
+## Cómo funciona el comparador
 
-- App **Nuxt.js SPA** a `https://comparador.cnmc.gob.es/`.
-- Flux: home → formulari → `/comparador/listado/{TOKEN}` (resultats) → `/comparador/detalle/{TOKEN}` (oferta).
-- L'estat del formulari es codifica en un **token hex xifrat (AES-GCM, ~232 bytes)** a la URL. No cal desxifrar-lo: l'API REST és directa.
-- Tot el càlcul de preus és **server-side**.
+- App **Nuxt.js SPA** en `https://comparador.cnmc.gob.es/`.
+- Flujo: home → formulario → `/comparador/listado/{TOKEN}` (resultados) → `/comparador/detalle/{TOKEN}` (oferta).
+- El estado del formulario se codifica en un **token hex cifrado (AES-GCM, ~232 bytes)** en la URL. No hace falta descifrarlo: el API REST es directo.
+- Todo el cálculo de precios es **server-side**.
 
-## L'API (pública, sense auth, sense cookies)
+## El API (pública, sin auth, sin cookies)
 
-### Endpoint principal — ofertes
+### Endpoint principal — ofertas
 
 ```
 GET https://comparador.cnmc.gob.es/api/publico/ofertas/electricidad
 ```
 
-Retorna `~110 ofertes` amb `importePrimerAnio`, `comercializadora`, `oferta`,
-`tipo` (fixe/indexat), `tipoRevision`, `verde`, `penalizacion`, `autoconsumo`, etc.
+Devuelve `~110 ofertas` con `importePrimerAnio`, `comercializadora`, `oferta`,
+`tipo` (fijo/indexado), `tipoRevision`, `verde`, `penalizacion`, `autoconsumo`, etc.
 
-⚠️ **Els kWh de consum han de ser enters** (valors amb decimals → HTTP 400).
-La potència sí admet decimals.
+⚠️ **Los kWh de consumo deben ser enteros** (valores con decimales → HTTP 400).
+La potencia sí admite decimales.
 
-### Paràmetres clau (query string, GET)
+### Parámetros clave (query string, GET)
 
-| Paràmetre | Exemple | Significat |
+| Parámetro | Ejemplo | Significado |
 |---|---|---|
-| `tipoSuministro` | `E` | Electricitat |
-| `codigoPostal` | `8001` | CP (sense el 0 inicial) |
-| `potencia` / `potenciaPrimeraFranja`…`SextaFranja` | `3.45` | kW contractats per període (2.0TD → P1, P2, P3) |
-| `consumoAnualE` | `4313` | kWh de l'any (o del període, si mensual) |
-| `consumoAnualEOrig` | `4313` | kWh any originals |
-| `consumoPrimeraFranja`/`Segunda`/`Tercera` | `1447,1155,1711` | kWh per P1/P2/P3 |
-| `tarifa` | `4` | Peatge d'accés (4 = 2.0TD) |
-| **`autoconsumo`** | `true`/`false` | Marca que hi ha autoconsum FV |
-| **`energiaAutoconsumo`** | `600` | **kWh autoconsumits (energia FV consumida in situ)** |
-| `potenciaAutoconsumo` | `3.45` | kW de la instal·lació FV |
-| `revisionPrecios` | `2` | Filtre revisió de preus |
-| `serviciosAdicionales` | `2` | Filtre serveis addicionals |
-| `permanencia` | `2` | Filtre permanència |
-| `perfilConsumo` | `13` | Perfil (13 = Estàndard 2.0TD) |
-| `dateInicio` / `dateFin` | `1704067200000` | Epoch ms (període de la consulta) |
-| `*Qr`, `*Orig`, `tc`, `bs`, `exc`, `reg`, `imp*`, `pr*`, `cf*`, … | `0` | Camps auxiliars |
+| `tipoSuministro` | `E` | Electricidad |
+| `codigoPostal` | `8001` | CP (sin el 0 inicial) |
+| `potencia` / `potenciaPrimeraFranja`…`SextaFranja` | `3.45` | kW contratados por período (2.0TD → P1, P2, P3) |
+| `consumoAnualE` | `4313` | kWh del año (o del período, si mensual) |
+| `consumoAnualEOrig` | `4313` | kWh anuales originales |
+| `consumoPrimeraFranja`/`Segunda`/`Tercera` | `1447,1155,1711` | kWh por P1/P2/P3 |
+| `tarifa` | `4` | Peaje de acceso (4 = 2.0TD) |
+| **`autoconsumo`** | `true`/`false` | Marca que hay autoconsumo FV |
+| **`energiaAutoconsumo`** | `600` | **kWh autoconsumidos (energía FV consumida in situ)** |
+| `potenciaAutoconsumo` | `3.45` | kW de la instalación FV |
+| `revisionPrecios` | `2` | Filtro revisión de precios |
+| `serviciosAdicionales` | `2` | Filtro servicios adicionales |
+| `permanencia` | `2` | Filtro permanencia |
+| `perfilConsumo` | `13` | Perfil (13 = Estándar 2.0TD) |
+| `dateInicio` / `dateFin` | `1704067200000` | Epoch ms (período de la consulta) |
+| `*Qr`, `*Orig`, `tc`, `bs`, `exc`, `reg`, `imp*`, `pr*`, `cf*`, … | `0` | Campos auxiliares |
 
-⚠️ Cal incloure **tots** els camps auxiliars (`*Qr`, `*Orig`, `imp*`, etc.) a `0`,
-o l'API retorna HTTP 500.
+⚠️ Hay que incluir **todos** los campos auxiliares (`*Qr`, `*Orig`, `imp*`, etc.) a `0`,
+o el API devuelve HTTP 500.
 
-### Altres endpoints útils
+### Otros endpoints útiles
 
-- `GET /api/publico/preciosPVPC/ultimaFechaConTodo` → darrera data amb preus PVPC.
-- `GET /api/publico/listadoPerfiles` → perfils de consum disponibles.
-- `GET /api/publico/logo/{id}` → logo d'una comercialitzadora.
+- `GET /api/publico/preciosPVPC/ultimaFechaConTodo` → última fecha con precios PVPC.
+- `GET /api/publico/listadoPerfiles` → perfiles de consumo disponibles.
+- `GET /api/publico/logo/{id}` → logo de una comercializadora.
 
-## Limitacions per al cas d'ús solar
+## Limitaciones para el caso de uso solar
 
-- ✅ **Autoconsum** (energia que consumeixes de les teves plaques): modelat via
-  `energiaAutoconsumo`. Redueix la factura correctament.
-- ❌ **Excedents** (energia que bolques a la xarxa i et compensen): **NO** està al
-  comparador de la CNMC. És específic de cada comercialitzadora.
-- ❌ **Bateria virtual**: tampoc. És un producte comercial propi de cada marca.
+- ✅ **Autoconsumo** (energía que consumes de tus placas): modelado vía
+  `energiaAutoconsumo`. Reduce la factura correctamente.
+- ❌ **Excedentes** (energía que viertes a la red y te compensan): **NO** está en el
+  comparador de la CNMC. Es específico de cada comercializadora.
+- ❌ **Batería virtual**: tampoco. Es un producto comercial propio de cada marca.
 
-Aquesta eina modela excedents i bateria virtual a part amb preus d'**e-sios**
-(indicadors 1001 i 1739); vegeu el README, secció "Simulació d'excedents".
+Esta herramienta modela excedentes y batería virtual aparte con precios de **e-sios**
+(indicadores 1001 y 1739); véase el README, sección "Simulación de excedentes".

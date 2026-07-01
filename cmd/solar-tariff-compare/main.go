@@ -1,14 +1,14 @@
-// Command solar-tariff-compare compara ofertes d'electricitat de la CNMC usant
-// la corba de consum real (CCH) i, opcionalment, una estimació de producció FV
-// (PVGIS) per modelar l'autoconsum.
+// Command solar-tariff-compare compara ofertas de electricidad de la CNMC usando
+// la curva de consumo real (CCH) y, opcionalmente, una estimación de producción FV
+// (PVGIS) para modelar el autoconsumo y los excedentes.
 //
-// Ús:
+// Uso:
 //
-//	solar-tariff-compare -consum corba.csv -cp 08001 -potencia 3.45 \
-//	    [-kwp 3.5 -lat 41.38 -lon 2.17 -angle 35 -aspect 0] [-top 20] [-json]
+//	solar-tariff-compare -consum curva.csv -cp 8001 -potencia 3.45 \
+//	    [-kwp 4.1 -lat 41.38 -lon 2.17 -angle 35 -aspect 0] [-sim] [-top 20] [-json]
 //
-// Sense paràmetres FV (-kwp) compara només amb consum real. Amb FV, a més mostra
-// la comparativa amb/sense autoconsum i l'estalvi.
+// Sin parámetros FV (-kwp) compara sólo con consumo real. Con FV muestra además la
+// comparativa con/sin autoconsumo; con -sim simula esquemas de excedentes.
 package main
 
 import (
@@ -26,87 +26,88 @@ import (
 
 func main() {
 	var (
-		consumPath = flag.String("consum", "", "fitxer CSV de la corba horària (CCH e-distribución) [obligatori]")
-		cp         = flag.String("cp", "", "codi postal sense el 0 inicial (p.ex. 08001 → 8001) [obligatori]")
-		potencia   = flag.Float64("potencia", 3.45, "potència contractada en kW (2.0TD)")
-		top        = flag.Int("top", 20, "nombre d'ofertes a mostrar")
+		consumPath = flag.String("consum", "", "fichero CSV de la curva horaria (CCH e-distribución) [obligatorio]")
+		cp         = flag.String("cp", "", "código postal sin el 0 inicial (p.ej. 08001 → 8001) [obligatorio]")
+		potencia   = flag.Float64("potencia", 3.45, "potencia contratada en kW (2.0TD)")
+		top        = flag.Int("top", 20, "número de ofertas a mostrar")
 
-		// Autoconsum FV (opcional). Si -kwp > 0, s'estima la producció amb PVGIS.
-		kwp    = flag.Float64("kwp", 0, "potència FV de pic en kW (activa estimació PVGIS)")
-		lat    = flag.Float64("lat", 41.38, "latitud per PVGIS")
-		lon    = flag.Float64("lon", 2.17, "longitud per PVGIS")
-		angle  = flag.Float64("angle", 35, "inclinació dels panells en graus")
-		aspect = flag.Float64("aspect", 0, "orientació en graus (0=sud, -90=est, 90=oest)")
-		loss   = flag.Float64("loss", 14, "pèrdues del sistema FV en %")
+		// Autoconsumo FV (opcional). Si -kwp > 0, se estima la producción con PVGIS.
+		kwp    = flag.Float64("kwp", 0, "potencia FV de pico en kW (activa estimación PVGIS)")
+		lat    = flag.Float64("lat", 41.38, "latitud para PVGIS")
+		lon    = flag.Float64("lon", 2.17, "longitud para PVGIS")
+		angle  = flag.Float64("angle", 35, "inclinación de los paneles en grados")
+		aspect = flag.Float64("aspect", 0, "orientación en grados (0=sur, -90=este, 90=oeste)")
+		loss   = flag.Float64("loss", 14, "pérdidas del sistema FV en %")
 
-		asJSON   = flag.Bool("json", false, "mostra la sortida en JSON")
-		sinSolar = flag.Bool("sense-solar", false, "amb FV: també mostra la comparativa sense FV")
+		asJSON   = flag.Bool("json", false, "muestra la salida en JSON")
+		sinSolar = flag.Bool("sin-solar", false, "con FV: muestra también la comparativa sin FV")
 
-		// Simulació d'excedents (agent-first). Amb -sim i FV, compara els esquemes
-		// de compensació (regulada / indexada / bateria virtual) hora a hora.
-		sim     = flag.Bool("sim", false, "amb FV: simula esquemes d'excedents (regulada/indexada/bateria virtual) amb preus e-sios")
-		prodCSV = flag.String("prod", "", "CSV de producció real (variant 7 columnes amb AS_KWh/AE_AUTOCONS); substitueix PVGIS")
+		// Simulación de excedentes (agent-first). Con -sim y FV, compara los esquemas
+		// de compensación (regulada / indexada / batería virtual) hora a hora.
+		sim     = flag.Bool("sim", false, "con FV: simula esquemas de excedentes (regulada/indexada/batería virtual) con precios e-sios")
+		prodCSV = flag.String("prod", "", "CSV de producción real (variante de 7 columnas con AS_KWh/AE_AUTOCONS); sustituye a PVGIS")
 	)
 	flag.Parse()
 
 	if *consumPath == "" || *cp == "" {
-		fmt.Fprintln(os.Stderr, "Ús: solar-tariff-compare -consum <corba.csv> -cp <codi_postal> [opcions]")
+		fmt.Fprintln(os.Stderr, "Uso: solar-tariff-compare -consum <curva.csv> -cp <código_postal> [opciones]")
 		flag.PrintDefaults()
 		os.Exit(2)
 	}
 
-	// 1. Carrega la corba de consum
+	// 1. Carga la curva de consumo
 	info, err := st.ParseCCH(*consumPath, nil)
 	if err != nil {
-		fatal("llegint consum: %v", err)
+		fatal("leyendo consumo: %v", err)
 	}
-	ca := info.ConsumAnalisi
-	fmt.Fprintf(os.Stderr, "Consum: %.0f kWh/any (P1=%.0f P2=%.0f P3=%.0f) | %d hores, %d forats, %.0f%% estimat\n",
-		ca.Anual, ca.P1, ca.P2, ca.P3, info.Rows, info.Holes, info.EstimatedPct)
+	cs := info.ConsumptionSummary
+	fmt.Fprintf(os.Stderr, "Consumo: %.0f kWh/año (P1=%.0f P2=%.0f P3=%.0f) | %d horas, %d huecos, %.0f%% estimado\n",
+		cs.Annual, cs.P1, cs.P2, cs.P3, info.Rows, info.Holes, info.EstimatedPct)
 
-	// 2. Producció FV: o bé CSV real (-prod), o bé estimació PVGIS (-kwp).
-	var perfil *st.PerfilProd
-	var resultatAuto st.ResultatAutoconsum
-	var prodCurve map[time.Time]float64 // corba de producció per a la simulació d'excedents
+	// 2. Producción FV: o bien CSV real (-prod), o bien estimación PVGIS (-kwp).
+	var perfil *st.ProductionProfile
+	var autoResult st.AutoconsumptionResult
+	var prodCurve map[time.Time]float64 // curva de producción para la simulación de excedentes
 	if *prodCSV != "" {
-		// CSV real amb columnes AS_KWh (excedents) i AE_AUTOCONS_kWh (autoconsum)
+		// CSV real con columnas AS_KWh (excedentes) y AE_AUTOCONS_kWh (autoconsumo)
 		pinfo, err := st.ParseCCH(*prodCSV, nil)
 		if err != nil {
-			fatal("llegint producció: %v", err)
+			fatal("leyendo producción: %v", err)
 		}
-		prodCurve = pinfo.Corba.ProduccioTotal()
-		resultatAuto = st.OverlayCurves(info.Corba.Consum, prodCurve)
-		fmt.Fprintf(os.Stderr, "Producció real: %.0f kWh/any | autoconsum %.0f kWh (%.0f%%) | excedents %.0f kWh | cobertura %.0f%%\n",
-			resultatAuto.ProduccioKWh, resultatAuto.AutoconsumKWh, resultatAuto.IndexAutocons*100,
-			resultatAuto.ExcedentsKWh, resultatAuto.Cobertura*100)
+		prodCurve = pinfo.Curve.TotalProduction()
+		autoResult = st.OverlayCurves(info.Curve.Consumption, prodCurve)
+		fmt.Fprintf(os.Stderr, "Producción real: %.0f kWh/año | autoconsumo %.0f kWh (%.0f%%) | excedentes %.0f kWh | cobertura %.0f%%\n",
+			autoResult.ProductionKWh, autoResult.SelfConsumedKWh, autoResult.SelfConsumRatio*100,
+			autoResult.SurplusKWh, autoResult.Coverage*100)
 	} else if *kwp > 0 {
-		fmt.Fprintf(os.Stderr, "Estimant producció FV amb PVGIS (%.2f kWp, lat %.3f lon %.3f, angle %.0f aspect %.0f)...\n",
+		fmt.Fprintf(os.Stderr, "Estimando producción FV con PVGIS (%.2f kWp, lat %.3f lon %.3f, ángulo %.0f aspect %.0f)...\n",
 			*kwp, *lat, *lon, *angle, *aspect)
-		perfil, err = st.FetchPerfilPVGIS(st.PVGISParams{
+		perfil, err = st.FetchPVGISProfile(st.PVGISParams{
 			Lat: *lat, Lon: *lon, PeakPower: *kwp, Angle: *angle, Aspect: *aspect, Loss: *loss,
 		})
 		if err != nil {
 			fatal("PVGIS: %v", err)
 		}
-		prodCurve = perfil.Aplicar(info.Corba.Consum)
-		resultatAuto = st.OverlayProduccio(info.Corba.Consum, perfil)
-		fmt.Fprintf(os.Stderr, "Producció FV: %.0f kWh/any | autoconsum %.0f kWh (%.0f%%) | excedents %.0f kWh | cobertura del consum %.0f%%\n",
-			resultatAuto.ProduccioKWh, resultatAuto.AutoconsumKWh, resultatAuto.IndexAutocons*100,
-			resultatAuto.ExcedentsKWh, resultatAuto.Cobertura*100)
+		prodCurve = perfil.Apply(info.Curve.Consumption)
+		autoResult = st.OverlayProduction(info.Curve.Consumption, perfil)
+		fmt.Fprintf(os.Stderr, "Producción FV: %.0f kWh/año | autoconsumo %.0f kWh (%.0f%%) | excedentes %.0f kWh | cobertura del consumo %.0f%%\n",
+			autoResult.ProductionKWh, autoResult.SelfConsumedKWh, autoResult.SelfConsumRatio*100,
+			autoResult.SurplusKWh, autoResult.Coverage*100)
 	}
 
 	// 3. Consulta CNMC
-	// Per la consulta "amb FV" reduïm el consum segons l'autoconsum FV (la part
-	// produïda i consumida in situ no es paga a la xarxa) i marco autoconsumo=true.
-	caFV := ca
-	if *kwp > 0 {
-		caFV.AutoconsumKWh = resultatAuto.AutoconsumKWh
+	// Para la consulta "con FV" reducimos el consumo según el autoconsumo FV (la parte
+	// producida y consumida in situ no se paga a la red) y marcamos autoconsumo=true.
+	csFV := cs
+	if *kwp > 0 || *prodCSV != "" {
+		csFV.SelfConsumedKWh = autoResult.SelfConsumedKWh
 	}
+	hasFV := *kwp > 0 || *prodCSV != ""
 	offersFV, err := st.FetchOffers(st.Query{
-		CodigoPostal: *cp,
-		Potencia:     *potencia,
-		Consum:       caFV,
-		Autoconsum:   *kwp > 0,
+		PostalCode:      *cp,
+		Power:           *potencia,
+		Consumption:     csFV,
+		SelfConsumption: hasFV,
 	})
 	if err != nil {
 		fatal("CNMC: %v", err)
@@ -115,31 +116,31 @@ func main() {
 		return offersFV[i].ImportePrimerAnio < offersFV[j].ImportePrimerAnio
 	})
 
-	var offersSense []st.Offer
-	if *kwp > 0 && *sinSolar {
-		offersSense, err = st.FetchOffers(st.Query{
-			CodigoPostal: *cp,
-			Potencia:     *potencia,
-			Consum:       ca, // sense autoconsum
+	var offersSinFV []st.Offer
+	if hasFV && *sinSolar {
+		offersSinFV, err = st.FetchOffers(st.Query{
+			PostalCode:  *cp,
+			Power:       *potencia,
+			Consumption: cs, // sin autoconsumo
 		})
 		if err != nil {
-			fatal("CNMC (sense FV): %v", err)
+			fatal("CNMC (sin FV): %v", err)
 		}
-		sort.Slice(offersSense, func(i, j int) bool {
-			return offersSense[i].ImportePrimerAnio < offersSense[j].ImportePrimerAnio
+		sort.Slice(offersSinFV, func(i, j int) bool {
+			return offersSinFV[i].ImportePrimerAnio < offersSinFV[j].ImportePrimerAnio
 		})
 	}
 
 	if *asJSON {
-		printJSON(offersFV, resultatAuto, *top, esquemesIfSim(*sim, prodCurve, info))
+		printJSON(offersFV, autoResult, *top, schemesIfSim(*sim, prodCurve, info))
 		return
 	}
-	printTaula(offersFV, *top, resultatAuto, *kwp > 0 || *prodCSV != "")
-	if len(offersSense) > 0 {
-		fmt.Printf("\n— Sense FV (referència): la més barata és %.2f €/any —\n", offersSense[0].ImportePrimerAnio)
+	printTaula(offersFV, *top, autoResult, hasFV)
+	if len(offersSinFV) > 0 {
+		fmt.Printf("\n— Sin FV (referencia): la más barata es %.2f €/año —\n", offersSinFV[0].ImportePrimerAnio)
 		if len(offersFV) > 0 {
-			fmt.Printf("— Amb FV: la més barata és %.2f €/any — estalvi %.2f €/any\n",
-				offersFV[0].ImportePrimerAnio, offersSense[0].ImportePrimerAnio-offersFV[0].ImportePrimerAnio)
+			fmt.Printf("— Con FV: la más barata es %.2f €/año — ahorro %.2f €/año\n",
+				offersFV[0].ImportePrimerAnio, offersSinFV[0].ImportePrimerAnio-offersFV[0].ImportePrimerAnio)
 		}
 	}
 	if *sim && prodCurve != nil {
@@ -147,101 +148,100 @@ func main() {
 	}
 }
 
-// esquemesIfSim executa la simulació d'excedents si -sim està actiu; retorna nil altrament.
-func esquemesIfSim(doSim bool, prodCurve map[time.Time]float64, info *st.CCHInfo) []st.ResultatScheme {
+// schemesIfSim ejecuta la simulación de excedentes si -sim está activo; devuelve nil en caso contrario.
+func schemesIfSim(doSim bool, prodCurve map[time.Time]float64, info *st.CCHInfo) []st.SchemeResult {
 	if !doSim || prodCurve == nil {
 		return nil
 	}
-	preus, err := st.FetchPreusHoraris(info.Corba.First, info.Corba.Last)
+	prices, err := st.FetchHourlyPrices(info.Curve.First, info.Curve.Last)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "avís (sim): no s'han pogut obtenir preus e-sios: %v\n", err)
+		fmt.Fprintf(os.Stderr, "aviso (sim): no se han podido obtener precios e-sios: %v\n", err)
 		return nil
 	}
-	return st.ResumComparativa(info.Corba.Consum, prodCurve, preus)
+	return st.CompareSchemes(info.Curve.Consumption, prodCurve, prices)
 }
 
 func printSim(info *st.CCHInfo, prodCurve map[time.Time]float64) {
-	preus, err := st.FetchPreusHoraris(info.Corba.First, info.Corba.Last)
+	prices, err := st.FetchHourlyPrices(info.Curve.First, info.Curve.Last)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "avís (sim): %v\n", err)
+		fmt.Fprintf(os.Stderr, "aviso (sim): %v\n", err)
 		return
 	}
-	res := st.ResumComparativa(info.Corba.Consum, prodCurve, preus)
-	fmt.Println("\n— Simulació d'excedents (terme d'energia net, sense fixos) —")
-	fmt.Printf("  font preus: PVPC=%s  excedents=%s\n", preus.PVPC.Fuente, preus.Excedents.Fuente)
+	res := st.CompareSchemes(info.Curve.Consumption, prodCurve, prices)
+	fmt.Println("\n— Simulación de excedentes (término de energía neto, sin fijos) —")
+	fmt.Printf("  fuente precios: PVPC=%s  excedentes=%s\n", prices.PVPC.Source, prices.Surplus.Source)
 	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-	fmt.Fprintf(w, "  %s\t%s\t%s\t%s\t%s\n", "€/any energia", "Compensat", "Perdut", "Exc kWh", "Scheme")
+	fmt.Fprintf(w, "  %s\t%s\t%s\t%s\t%s\n", "€/año energía", "Compensado", "Perdido", "Exc kWh", "Esquema")
 	for _, r := range res {
 		fmt.Fprintf(w, "  %.2f\t%.2f\t%.2f\t%.0f\t%s\n",
-			r.EnergiaNeta, r.CompensacioUsada, r.CompensacioPerduda, r.ExcedentsKWh, r.Scheme.Nom)
+			r.NetEnergy, r.UsedCompensation, r.LostCompensation, r.SurplusKWh, r.Scheme.Name)
 	}
 	w.Flush()
 	if len(res) >= 2 {
-		fmt.Printf("\n  Millor: %s (%.2f €/any) | pitjor: %s (%.2f €/any) → diferència %.2f €/any\n",
-			res[0].Scheme.Nom, res[0].EnergiaNeta, res[len(res)-1].Scheme.Nom, res[len(res)-1].EnergiaNeta,
-			res[len(res)-1].EnergiaNeta-res[0].EnergiaNeta)
+		fmt.Printf("\n  Mejor: %s (%.2f €/año) | peor: %s (%.2f €/año) → diferencia %.2f €/año\n",
+			res[0].Scheme.Name, res[0].NetEnergy, res[len(res)-1].Scheme.Name, res[len(res)-1].NetEnergy,
+			res[len(res)-1].NetEnergy-res[0].NetEnergy)
 	}
-	_ = res
 }
 
-func printTaula(offers []st.Offer, top int, auto st.ResultatAutoconsum, ambFV bool) {
+func printTaula(offers []st.Offer, top int, auto st.AutoconsumptionResult, conFV bool) {
 	if len(offers) == 0 {
-		fmt.Println("(cap oferta)")
+		fmt.Println("(ninguna oferta)")
 		return
 	}
 	if top > len(offers) {
 		top = len(offers)
 	}
-	tipus := func(o st.Offer) string {
+	tipo := func(o st.Offer) string {
 		if o.Tipo != nil {
 			return *o.Tipo
 		}
 		if o.TipoElectricidad == "TI" {
-			return "Indexat"
+			return "Indexado"
 		}
-		return "Fixe"
+		return "Fijo"
 	}
 	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-	if ambFV {
-		fmt.Fprintf(w, "  %s\t%s\t%s\t%s\t%s\t%s\n", "€/any", "Comercialitzadora", "Oferta", "Tipus", "Verd", "Autocons")
+	if conFV {
+		fmt.Fprintf(w, "  %s\t%s\t%s\t%s\t%s\t%s\n", "€/año", "Comercializadora", "Oferta", "Tipo", "Verde", "Autocons")
 	} else {
-		fmt.Fprintf(w, "  %s\t%s\t%s\t%s\t%s\n", "€/any", "Comercialitzadora", "Oferta", "Tipus", "Verd")
+		fmt.Fprintf(w, "  %s\t%s\t%s\t%s\t%s\n", "€/año", "Comercializadora", "Oferta", "Tipo", "Verde")
 	}
 	for _, o := range offers[:top] {
-		verd := "—"
+		verde := "—"
 		if o.Verde {
-			verd = "✓"
+			verde = "✓"
 		}
 		autoCol := "—"
 		if o.Autoconsum {
 			autoCol = "✓"
 		}
-		nom := truncar(o.Comercializadora, 26)
+		nombre := truncar(o.Comercializadora, 26)
 		oferta := truncar(o.Oferta, 34)
-		if ambFV {
+		if conFV {
 			fmt.Fprintf(w, "  %s\t%s\t%s\t%s\t%s\t%s\n",
-				formatEUR(o.ImportePrimerAnio), nom, oferta, truncar(tipus(o), 12), verd, autoCol)
+				formatEUR(o.ImportePrimerAnio), nombre, oferta, truncar(tipo(o), 12), verde, autoCol)
 		} else {
 			fmt.Fprintf(w, "  %s\t%s\t%s\t%s\t%s\n",
-				formatEUR(o.ImportePrimerAnio), nom, oferta, truncar(tipus(o), 12), verd)
+				formatEUR(o.ImportePrimerAnio), nombre, oferta, truncar(tipo(o), 12), verde)
 		}
 	}
 	w.Flush()
-	fmt.Printf("\nMostrant %d de %d ofertes.\n", top, len(offers))
+	fmt.Printf("\nMostrando %d de %d ofertas.\n", top, len(offers))
 }
 
 type jsonOut struct {
-	Autoconsum st.ResultatAutoconsum `json:"autoconsum,omitempty"`
-	NumOfertes int                   `json:"num_ofertes"`
-	TopOfertes []st.Offer            `json:"top_ofertes"`
-	Esquemes   []st.ResultatScheme   `json:"esquemes_excedents,omitempty"`
+	Autoconsumption st.AutoconsumptionResult `json:"autoconsumption,omitempty"`
+	NumOfertas      int                      `json:"num_offers"`
+	TopOfertas      []st.Offer               `json:"top_offers"`
+	Schemes         []st.SchemeResult        `json:"surplus_schemes,omitempty"`
 }
 
-func printJSON(offers []st.Offer, auto st.ResultatAutoconsum, top int, esquemes []st.ResultatScheme) {
+func printJSON(offers []st.Offer, auto st.AutoconsumptionResult, top int, schemes []st.SchemeResult) {
 	if top > len(offers) {
 		top = len(offers)
 	}
-	out := jsonOut{Autoconsum: auto, NumOfertes: len(offers), TopOfertes: offers[:top], Esquemes: esquemes}
+	out := jsonOut{Autoconsumption: auto, NumOfertas: len(offers), TopOfertas: offers[:top], Schemes: schemes}
 	enc := json.NewEncoder(os.Stdout)
 	enc.SetIndent("", "  ")
 	enc.Encode(out)

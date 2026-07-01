@@ -5,31 +5,31 @@ import (
 	"time"
 )
 
-func TestOverlayProduccio(t *testing.T) {
+func TestOverlayProduction(t *testing.T) {
 	loc, _ := time.LoadLocation("Europe/Madrid")
-	// Consum: dues hores, una amb sol i una sense
+	// Consumption: dues hores, una amb sol i una sense
 	consum := map[time.Time]float64{
 		time.Date(2025, 6, 15, 13, 0, 0, 0, loc): 0.5, // migdia estiu, poc consum
 		time.Date(2025, 6, 15, 23, 0, 0, 0, loc): 1.0, // nit, sense sol
 	}
 	// Perfil: al juny hora 13 = 3 kW; hora 23 = 0
-	perfil := &PerfilProd{}
+	perfil := &ProductionProfile{}
 	perfil.ByMonthHour[5][13] = 3.0 // juny (índex 5), 13h
 	perfil.ByMonthHour[5][23] = 0
 
-	r := OverlayProduccio(consum, perfil)
+	r := OverlayProduction(consum, perfil)
 	// Producció = 3 kWh (només 1 hora amb sol); autoconsum = min(3, 0.5)=0.5; excedents=2.5
-	if r.ProduccioKWh != 3.0 {
-		t.Errorf("producció esperada 3.0, got %.2f", r.ProduccioKWh)
+	if r.ProductionKWh != 3.0 {
+		t.Errorf("producció esperada 3.0, got %.2f", r.ProductionKWh)
 	}
-	if r.AutoconsumKWh != 0.5 {
-		t.Errorf("autoconsum esperat 0.5, got %.2f", r.AutoconsumKWh)
+	if r.SelfConsumedKWh != 0.5 {
+		t.Errorf("autoconsum esperat 0.5, got %.2f", r.SelfConsumedKWh)
 	}
-	if r.ExcedentsKWh != 2.5 {
-		t.Errorf("excedents esperats 2.5, got %.2f", r.ExcedentsKWh)
+	if r.SurplusKWh != 2.5 {
+		t.Errorf("excedents esperats 2.5, got %.2f", r.SurplusKWh)
 	}
-	if r.IndexAutocons < 0.16 || r.IndexAutocons > 0.17 {
-		t.Errorf("índex autoconsum esperat ~0.167, got %.3f", r.IndexAutocons)
+	if r.SelfConsumRatio < 0.16 || r.SelfConsumRatio > 0.17 {
+		t.Errorf("índex autoconsum esperat ~0.167, got %.3f", r.SelfConsumRatio)
 	}
 }
 
@@ -52,20 +52,20 @@ func TestParsePVGISTime(t *testing.T) {
 	}
 }
 
-// TestFetchPerfilPVGIS_Live: test d'integració contra PVGIS (Barcelona, 3.5 kWp).
-func TestFetchPerfilPVGIS_Live(t *testing.T) {
+// TestFetchPVGISProfile_Live: test d'integració contra PVGIS (Barcelona, 3.5 kWp).
+func TestFetchPVGISProfile_Live(t *testing.T) {
 	if v := testEnv("SOLARTRACK_SKIP_LIVE"); v != "" {
 		t.Skip("test d'integració saltat")
 	}
-	perfil, err := FetchPerfilPVGIS(PVGISParams{
+	perfil, err := FetchPVGISProfile(PVGISParams{
 		Lat: 41.38, Lon: 2.17, PeakPower: 3.5, Angle: 35, Aspect: 0,
 	})
 	if err != nil {
-		t.Fatalf("FetchPerfilPVGIS: %v", err)
+		t.Fatalf("FetchPVGISProfile: %v", err)
 	}
 	// 3.5 kWp a Barcelona ~5000-6000 kWh/any
-	if perfil.AnualKWh < 4000 || perfil.AnualKWh > 8000 {
-		t.Errorf("producció anual esperada 4000-8000, got %.0f", perfil.AnualKWh)
+	if perfil.AnnualKWh < 4000 || perfil.AnnualKWh > 8000 {
+		t.Errorf("producció anual esperada 4000-8000, got %.0f", perfil.AnnualKWh)
 	}
-	t.Logf("OK PVGIS: %.0f kWh/any (3.5 kWp BCN)", perfil.AnualKWh)
+	t.Logf("OK PVGIS: %.0f kWh/any (3.5 kWp BCN)", perfil.AnnualKWh)
 }

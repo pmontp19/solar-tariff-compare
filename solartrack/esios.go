@@ -9,68 +9,68 @@ import (
 	"time"
 )
 
-// e-sios (Red Eléctrica) ofereix dades públiques del mercat elèctric espanyol.
-// Indicadors rellevants:
-//   - 1001: Término de facturación de energía activa del PVPC 2.0TD (preu consum)
-//   - 1739: Precio de la energía excedentaria del autoconsumo (preu compensació)
+// e-sios (Red Eléctrica) ofrece datos públicos del mercado eléctrico español.
+// Indicadores relevantes:
+//   - 1001: Término de facturación de energía activa del PVPC 2.0TD (precio consumo)
+//   - 1739: Precio de la energía excedentaria del autoconsumo (precio compensación)
 //
-// Sense token només es poden consultar els valors més recents (sense rang de
-// dates). Amb un token personal gratuït (ESIOS_TOKEN) es pot baixar històric.
-// Obteniu el token a https://api.esios.ree.es (registre gratuït).
+// Sin token sólo se pueden consultar los valores más recientes (sin rango de
+// fechas). Con un token personal gratuito (ESIOS_TOKEN) se puede descargar histórico.
+// Obtén el token en https://api.esios.ree.es (registro gratuito).
 const (
 	esiosBase        = "https://api.esios.ree.es/indicators"
 	indicadorPVPC    = 1001
 	indicadorExced   = 1739
 	geoPeninsulaPVPC = 8741 // primera zona peninsular del PVPC 2.0TD
-	geoPeninsulaExc  = 3    // península per a excedents
+	geoPeninsulaExc  = 3    // península para excedentes
 )
 
-// SerieHoraria és una sèrie de preus horaris en €/kWh (ja convertits des d'euros/MWh).
-type SerieHoraria struct {
-	Dia    map[string][24]float64 // clau "YYYY-MM-DD" -> 24 preus (€/kWh)
-	Fuente string                 // "token" (històric) o "latest" (només últim dia, sense token)
+// HourlySeries es una serie de precios horarios en €/kWh (ya convertidos desde €/MWh).
+type HourlySeries struct {
+	ByDay  map[string][24]float64 // clave "YYYY-MM-DD" -> 24 precios (€/kWh)
+	Source string                 // "token" (histórico) o "latest" (sólo último día, sin token)
 }
 
-// PreusHoraris conté les dues sèries necessàries per simular la factura.
-type PreusHoraris struct {
-	PVPC      SerieHoraria // preu de consum (indicador 1001)
-	Excedents SerieHoraria // preu de compensació d'excedents (indicador 1739)
+// HourlyPrices contiene las dos series necesarias para simular la factura.
+type HourlyPrices struct {
+	PVPC    HourlySeries // precio de consumo (indicador 1001)
+	Surplus HourlySeries // precio de compensación de excedentes (indicador 1739)
 }
 
-// FetchPreusHoraris descarrega les sèries PVPC i d'excedents per al rang de dates.
-// Si no hi ha ESIOS_TOKEN, només es pot obtenir l'últim dia disponible (Fuente="latest")
-// i es retorna un error si es demana un rang concret sense token.
-func FetchPreusHoraris(inici, fi time.Time) (*PreusHoraris, error) {
+// FetchHourlyPrices descarga las series PVPC y de excedentes para el rango de fechas.
+// Si no hay ESIOS_TOKEN, sólo se puede obtener el último día disponible (Source="latest").
+func FetchHourlyPrices(start, end time.Time) (*HourlyPrices, error) {
 	token := os.Getenv("ESIOS_TOKEN")
-	if token == "" && (!inici.IsZero() || !fi.IsZero()) {
-		fmt.Fprintln(os.Stderr, "avís: sense ESIOS_TOKEN només es pot obtenir l'últim dia; la simulació usarà aquest perfil horari com a representatiu de tot l'any.")
+	if token == "" && (!start.IsZero() || !end.IsZero()) {
+		fmt.Fprintln(os.Stderr, "aviso: sin ESIOS_TOKEN sólo se puede obtener el último día; la simulación usará este perfil horario como representativo de todo el año.")
 	}
-	pvpc, err := fetchIndicador(indicadorPVPC, geoPeninsulaPVPC, inici, fi, token)
+	pvpc, err := fetchIndicador(indicadorPVPC, geoPeninsulaPVPC, start, end, token)
 	if err != nil {
 		return nil, fmt.Errorf("PVPC: %w", err)
 	}
-	exc, err := fetchIndicador(indicadorExced, geoPeninsulaExc, inici, fi, token)
+	exc, err := fetchIndicador(indicadorExced, geoPeninsulaExc, start, end, token)
 	if err != nil {
-		return nil, fmt.Errorf("excedents: %w", err)
+		return nil, fmt.Errorf("excedentes: %w", err)
 	}
-	return &PreusHoraris{PVPC: pvpc, Excedents: exc}, nil
+	return &HourlyPrices{PVPC: pvpc, Surplus: exc}, nil
 }
 
-func fetchIndicador(indicador, geo int, inici, fi time.Time, token string) (SerieHoraria, error) {
+func fetchIndicador(indicador, geo int, start, end time.Time, token string) (HourlySeries, error) {
 	u, _ := url.Parse(fmt.Sprintf("%s/%d", esiosBase, indicador))
 	q := u.Query()
-	hist := token != "" && !inici.IsZero() && !fi.IsZero()
+	hist := token != "" && !start.IsZero() && !end.IsZero()
 	if hist {
-		q.Set("start_date", inici.Format("2006-01-02T15:04"))
-		q.Set("end_date", fi.Format("2006-01-02T15:04"))
+		q.Set("start_date", start.Format("2006-01-02T15:04"))
+		q.Set("end_date", end.Format("2006-01-02T15:04"))
 	}
-	// NOTA: no afegim geo_ids[] — e-sios retorna 403 per a alguns indicadors (1739)
-	// en filtrar per geo sense token. Obtenim totes les zones i filtrem client-side.
+	// NOTA: no añadimos geo_ids[] — e-sios devuelve 403 para algunos indicadores
+	// (1739) al filtrar por geo sin token. Obtenemos todas las zonas y filtramos
+	// client-side.
 	u.RawQuery = q.Encode()
 
-	// e-sios (darrere d'un WAF) bloqueja per fingerprint TLS el ClientHello de Go
-	// (http.Get retorna 403) però accepta curl. Per evitar dependències Go (uTLS),
-	// deleguem la descàrrega a curl, present a macOS/Linux/Windows 10+.
+	// e-sios (detrás de un WAF) bloquea por fingerprint TLS el ClientHello de Go
+	// (http.Get devuelve 403) pero acepta curl. Para evitar dependencias Go (uTLS),
+	// delegamos la descarga a curl, presente en macOS/Linux/Windows 10+.
 	args := []string{"-sS", "--max-time", "30", "-H", "Accept: application/json",
 		"-A", "solar-tariff-compare/0.1"}
 	if token != "" {
@@ -81,7 +81,7 @@ func fetchIndicador(indicador, geo int, inici, fi time.Time, token string) (Seri
 	cmd.Stderr = os.Stderr
 	out, err := cmd.Output()
 	if err != nil {
-		return SerieHoraria{}, fmt.Errorf("curl e-sios (cal curl instal·lat): %w", err)
+		return HourlySeries{}, fmt.Errorf("curl e-sios (requiere curl instalado): %w", err)
 	}
 	var body struct {
 		Status    int    `json:"Status"`
@@ -95,17 +95,17 @@ func fetchIndicador(indicador, geo int, inici, fi time.Time, token string) (Seri
 		} `json:"indicator"`
 	}
 	if err := json.Unmarshal(out, &body); err != nil {
-		return SerieHoraria{}, fmt.Errorf("decodifica: %w (cos: %.200s)", err, string(out))
+		return HourlySeries{}, fmt.Errorf("decodifica: %w (cuerpo: %.200s)", err, string(out))
 	}
 	if body.Status == 403 || body.Message == "Forbidden" {
-		return SerieHoraria{}, fmt.Errorf("e-sios 403 per indicador %d (proveu amb ESIOS_TOKEN)", indicador)
+		return HourlySeries{}, fmt.Errorf("e-sios 403 para indicador %d (prueba con ESIOS_TOKEN)", indicador)
 	}
 
-	s := SerieHoraria{Dia: map[string][24]float64{}}
+	s := HourlySeries{ByDay: map[string][24]float64{}}
 	if hist {
-		s.Fuente = "token"
+		s.Source = "token"
 	} else {
-		s.Fuente = "latest"
+		s.Source = "latest"
 	}
 	loc, _ := time.LoadLocation("Europe/Madrid")
 	for _, v := range body.Indicator.Values {
@@ -114,7 +114,7 @@ func fetchIndicador(indicador, geo int, inici, fi time.Time, token string) (Seri
 		}
 		t, err := time.Parse("2006-01-02T15:04:05.000-07:00", v.Datetime)
 		if err != nil {
-			// format alternatiu
+			// formato alternativo
 			t, err = time.Parse(time.RFC3339, v.Datetime)
 			if err != nil {
 				continue
@@ -126,33 +126,34 @@ func fetchIndicador(indicador, geo int, inici, fi time.Time, token string) (Seri
 		if hora < 0 || hora > 23 {
 			continue
 		}
-		arr := s.Dia[dia]
+		arr := s.ByDay[dia]
 		arr[hora] = v.Value / 1000.0 // €/MWh -> €/kWh
-		s.Dia[dia] = arr
+		s.ByDay[dia] = arr
 	}
-	if len(s.Dia) == 0 {
-		return SerieHoraria{}, fmt.Errorf("cap valor per a l'indicador %d (geo %d)", indicador, geo)
+	if len(s.ByDay) == 0 {
+		return HourlySeries{}, fmt.Errorf("ningún valor para el indicador %d (geo %d)", indicador, geo)
 	}
 	return s, nil
 }
 
-// PerfilMigHorari promitja una sèrie diària en un perfil 24h mitjà (€/kWh per hora
-// del dia). Útil quan només es disposa d'un dia representatiu o per sintetitzar un any.
-func (s SerieHoraria) PerfilMigHorari() [24]float64 {
+// AverageHourlyProfile promedia una serie diaria en un perfil 24h medio (€/kWh por
+// hora del día). Útil cuando sólo se dispone de un día representativo o para
+// sintetizar un año.
+func (s HourlySeries) AverageHourlyProfile() [24]float64 {
 	var suma [24]float64
-	var comte [24]int
-	for _, arr := range s.Dia {
+	var cuenta [24]int
+	for _, arr := range s.ByDay {
 		for h := 0; h < 24; h++ {
 			if arr[h] > 0 {
 				suma[h] += arr[h]
-				comte[h]++
+				cuenta[h]++
 			}
 		}
 	}
 	var perfil [24]float64
 	for h := 0; h < 24; h++ {
-		if comte[h] > 0 {
-			perfil[h] = suma[h] / float64(comte[h])
+		if cuenta[h] > 0 {
+			perfil[h] = suma[h] / float64(cuenta[h])
 		}
 	}
 	return perfil

@@ -11,13 +11,13 @@ func TestFetchOffers_Live(t *testing.T) {
 		t.Skip("test d'integració saltat (SOLARTRACK_SKIP_LIVE)")
 	}
 	q := Query{
-		CodigoPostal: "8001",
-		Potencia:     3.45,
-		Consum: ConsumAnalisi{
-			Anual: 1400,
-			P1:    400,
-			P2:    400,
-			P3:    600,
+		PostalCode: "8001",
+		Power:      3.45,
+		Consumption: ConsumptionSummary{
+			Annual: 1400,
+			P1:     400,
+			P2:     400,
+			P3:     600,
 		},
 	}
 	offers, err := FetchOffers(q)
@@ -37,10 +37,10 @@ func TestFetchOffers_Live(t *testing.T) {
 
 func TestBuildParams_RequiredFields(t *testing.T) {
 	q := Query{
-		CodigoPostal: "8001",
-		Potencia:     3.45,
-		Consum:       ConsumAnalisi{Anual: 1400, P1: 400, P2: 400, P3: 600},
-		Autoconsum:   true,
+		PostalCode:      "8001",
+		Power:           3.45,
+		Consumption:     ConsumptionSummary{Annual: 1400, P1: 400, P2: 400, P3: 600},
+		SelfConsumption: true,
 	}
 	p := buildParams(q)
 	// Camps crítics que l'API exigeix (omissió -> HTTP 500)
@@ -64,10 +64,10 @@ func TestQuery_Validate(t *testing.T) {
 	if err := (Query{}).validate(); err == nil {
 		t.Error("esperava error sense codi postal")
 	}
-	if err := (Query{CodigoPostal: "8001"}).validate(); err == nil {
+	if err := (Query{PostalCode: "8001"}).validate(); err == nil {
 		t.Error("esperava error sense potència")
 	}
-	if err := (Query{CodigoPostal: "8001", Potencia: 3.45}).validate(); err != nil {
+	if err := (Query{PostalCode: "8001", Power: 3.45}).validate(); err != nil {
 		t.Errorf("consulta vàlida va donar error: %v", err)
 	}
 }

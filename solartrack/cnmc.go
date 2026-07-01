@@ -10,49 +10,49 @@ import (
 	"time"
 )
 
-// CNMCAPI és el client de l'API pública del comparador de la CNMC.
-// No requereix autenticació ni cookies. Vegeu CNMC-API-INVESTIGACIO.md.
+// cnmcBaseURL es el endpoint del API pública del comparador de la CNMC.
+// No requiere autenticación ni cookies. Véase docs/CNMC-API.md.
 const cnmcBaseURL = "https://comparador.cnmc.gob.es/api/publico/ofertas/electricidad"
 
-// ConsumAnalisi és el resultat d'agregar una corba horària en els 6 períodes
-// (P1..P6) del comparador. Per a 2.0TD només s'usen P1/P2/P3; P4..P6 queden a 0.
-type ConsumAnalisi struct {
-	Anual float64 // kWh totals anuals
-	P1    float64 // kWh P1 Punta
-	P2    float64 // kWh P2 Llano
-	P3    float64 // kWh P3 Valle
-	// Autoconsum: kWh produïts per la FV i consumits en mateix instant.
-	AutoconsumKWh float64
+// ConsumptionSummary es el resultado de agregar una curva horaria en los 6 períodos
+// (P1..P6) del comparador. Para 2.0TD sólo se usan P1/P2/P3; P4..P6 quedan a 0.
+type ConsumptionSummary struct {
+	Annual float64 // kWh anuales totales
+	P1     float64 // kWh P1 Punta
+	P2     float64 // kWh P2 Llano
+	P3     float64 // kWh P3 Valle
+	// SelfConsumed: kWh producidos por la FV y consumidos en el mismo instante.
+	SelfConsumedKWh float64
 }
 
-// Query defineix els paràmetres significatius de la consulta al comparador.
-// La resta de camps auxiliars (*Qr, *Orig, imp*, etc.) s'omplen internament a 0.
+// Query define los parámetros significativos de la consulta al comparador.
+// El resto de campos auxiliares (*Qr, *Orig, imp*, etc.) se rellenan internamente a 0.
 type Query struct {
-	CodigoPostal    string  // sense el 0 inicial (p.ex. "8001")
-	Potencia        float64 // kW contractats (2.0TD: potència única per P1/P2/P3)
-	Consum          ConsumAnalisi
-	Autoconsum      bool    // true si hi ha autoconsum FV
-	EnergiaAutocons float64 // kWh autoconsumits (ja inclòs a Consum.AutoconsumKWh normalment)
-	Festius         HolidayCalendar
-	// Periode de facturació (per defecte: últims 365 dies fins avui).
-	Inici time.Time
-	Fi    time.Time
+	PostalCode         string  // sin el 0 inicial (p.ej. "8001")
+	Power              float64 // kW contratados (2.0TD: potencia única para P1/P2/P3)
+	Consumption        ConsumptionSummary
+	SelfConsumption    bool    // true si hay autoconsumo FV
+	SelfConsumedEnergy float64 // kWh autoconsumidos (normalmente ya en Consumption.SelfConsumedKWh)
+	Holidays           HolidayCalendar
+	// Período de facturación (por defecto: últimos 365 días hasta hoy).
+	Start time.Time
+	End   time.Time
 }
 
-// Offer és una oferta del comparador. Els camps que poden ser null a l'API usen
-// punters. Només es declaren els camps útils; la resta s'ignora (Go descarta camps
-// JSON desconeguts per defecte).
+// Offer es una oferta del comparador. Los campos que pueden ser null en el API
+// usan punteros. Sólo se declaran los campos útiles; el resto se ignora (Go
+// descarta campos JSON desconocidos por defecto).
 type Offer struct {
 	ID                int64    `json:"id"`
 	IDComercialtz     int64    `json:"idComercializadora"`
 	Comercializadora  string   `json:"comercializadora"`
 	Oferta            string   `json:"oferta"`
-	Tipo              *string  `json:"tipo"` // pot ser null
+	Tipo              *string  `json:"tipo"` // puede ser null
 	TipoElectricidad  string   `json:"tipoElectricidad"`
-	TipoRevision      int      `json:"tipoRevision"` // enter
+	TipoRevision      int      `json:"tipoRevision"` // entero
 	Tarifa            int      `json:"tarifa"`
 	ImportePrimerAnio float64  `json:"importePrimerAnio"`
-	ImporteSegundo    *float64 `json:"importeSegundoAnio"` // pot ser null
+	ImporteSegundo    *float64 `json:"importeSegundoAnio"` // puede ser null
 	Validez           string   `json:"validez"`
 	Verde             bool     `json:"verde"`
 	Penalizacion      bool     `json:"penalizacion"`
@@ -69,8 +69,7 @@ type cnmcResponse struct {
 	Consum3             float64 `json:"consumo3"`
 }
 
-// FetchOffers consulta l'API i retorna les ofertes ordenades per import del primer
-// any (de més barata a més cara).
+// FetchOffers consulta el API y devuelve las ofertas.
 func FetchOffers(q Query) ([]Offer, error) {
 	if err := q.validate(); err != nil {
 		return nil, err
@@ -93,23 +92,22 @@ func FetchOffers(q Query) ([]Offer, error) {
 	}
 	var cr cnmcResponse
 	if err := json.NewDecoder(resp.Body).Decode(&cr); err != nil {
-		return nil, fmt.Errorf("decodifica resposta CNMC: %w", err)
+		return nil, fmt.Errorf("decodifica respuesta CNMC: %w", err)
 	}
-	// Ordena per import del primer any (NaN/0 al final)
 	return cr.ResultadoComparador, nil
 }
 
 func (q Query) validate() error {
-	if q.CodigoPostal == "" {
-		return fmt.Errorf("falta el codi postal")
+	if q.PostalCode == "" {
+		return fmt.Errorf("falta el código postal")
 	}
-	if q.Potencia <= 0 {
-		return fmt.Errorf("la potència ha de ser > 0")
+	if q.Power <= 0 {
+		return fmt.Errorf("la potencia debe ser > 0")
 	}
 	return nil
 }
 
-// buildRequest construeix la petició HTTP GET a la CNMC.
+// buildRequest construye la petición HTTP GET a la CNMC.
 func buildRequest(q Query, params url.Values) (*http.Request, error) {
 	req, err := http.NewRequest(http.MethodGet, cnmcBaseURL+"?"+params.Encode(), nil)
 	if err != nil {
@@ -120,47 +118,47 @@ func buildRequest(q Query, params url.Values) (*http.Request, error) {
 	return req, nil
 }
 
-// buildParams construeix la query string completa amb tots els camps requerits
-// per l'API (els auxiliars a 0; l'API retorna 500 si en manquen).
+// buildParams construye la query string completa con todos los campos requeridos
+// por el API (los auxiliares a 0; el API devuelve 500 si falta alguno).
 func buildParams(q Query) url.Values {
 	p := url.Values{}
-	// Dates per defecte: últim any
-	inici, fi := q.Inici, q.Fi
-	if fi.IsZero() {
-		fi = time.Now()
+	// Fechas por defecto: último año
+	start, end := q.Start, q.End
+	if end.IsZero() {
+		end = time.Now()
 	}
-	if inici.IsZero() {
-		inici = fi.AddDate(-1, 0, 0)
+	if start.IsZero() {
+		start = end.AddDate(-1, 0, 0)
 	}
 
 	p.Set("tipoSuministro", "E")
-	p.Set("codigoPostal", q.CodigoPostal)
-	p.Set("tarifa", "4") // 4 = peatge 2.0TD
+	p.Set("codigoPostal", q.PostalCode)
+	p.Set("tarifa", "4") // 4 = peaje 2.0TD
 
-	// Potències (igual per P1/P2/P3 en 2.0TD)
+	// Potencias (igual para P1/P2/P3 en 2.0TD)
 	setPot := func(key string, v float64) { p.Set(key, strconv.FormatFloat(v, 'f', -1, 64)) }
-	setPot("potencia", q.Potencia)
-	setPot("potenciaPrimeraFranja", q.Potencia)
-	setPot("potenciaSegundaFranja", q.Potencia)
-	setPot("potenciaTerceraFranja", q.Potencia)
+	setPot("potencia", q.Power)
+	setPot("potenciaPrimeraFranja", q.Power)
+	setPot("potenciaSegundaFranja", q.Power)
+	setPot("potenciaTerceraFranja", q.Power)
 	setPot("potenciaCuartaFranja", 0)
 	setPot("potenciaQuintaFranja", 0)
 	setPot("potenciaSextaFranja", 0)
 
-	// Consum per període. La CNMC exigeix kWh ENTERS (decimals → HTTP 400),
-	// així que arrodonim. La potència sí admet decimals.
+	// Consumo por período. La CNMC exigece kWh ENTEROS (decimales -> HTTP 400),
+	// así que redondeamos. La potencia sí admite decimales.
 	round := func(v float64) int { return int(v + 0.5) }
 	setF := func(key string, v float64) { p.Set(key, strconv.Itoa(round(v))) }
-	setF("consumoAnualE", q.Consum.Anual)
-	setF("consumoAnualEOrig", q.Consum.Anual)
-	setF("consumoPrimeraFranja", q.Consum.P1)
-	setF("consumoSegundaFranja", q.Consum.P2)
-	setF("consumoTerceraFranja", q.Consum.P3)
+	setF("consumoAnualE", q.Consumption.Annual)
+	setF("consumoAnualEOrig", q.Consumption.Annual)
+	setF("consumoPrimeraFranja", q.Consumption.P1)
+	setF("consumoSegundaFranja", q.Consumption.P2)
+	setF("consumoTerceraFranja", q.Consumption.P3)
 	setF("consumoCuartaFranja", 0)
 	setF("consumoQuintaFranja", 0)
 	setF("consumoSextaFranja", 0)
 
-	// Versions QR (totes 0)
+	// Versiones QR (todas 0)
 	for _, k := range []string{
 		"consumoAnualEQr", "consumoPrimeraFranjaQr", "consumoSegundaFranjaQr", "consumoTerceraFranjaQr",
 		"consumoCuartaFranjaQr", "consumoQuintaFranjaQr", "consumoSextaFranjaQr",
@@ -170,20 +168,20 @@ func buildParams(q Query) url.Values {
 		p.Set(k, "0")
 	}
 
-	// Autoconsum
-	ea := q.EnergiaAutocons
+	// Autoconsumo
+	ea := q.SelfConsumedEnergy
 	if ea == 0 {
-		ea = q.Consum.AutoconsumKWh
+		ea = q.Consumption.SelfConsumedKWh
 	}
 	setF("energiaAutoconsumo", ea)
-	setPot("potenciaAutoconsumo", q.Potencia)
-	p.Set("autoconsumo", strconv.FormatBool(q.Autoconsum))
+	setPot("potenciaAutoconsumo", q.Power)
+	p.Set("autoconsumo", strconv.FormatBool(q.SelfConsumption))
 
-	// Filtres per defecte (cap filtre restrictiu): 2 = "Indiferent/No"
+	// Filtros por defecto (sin filtro restrictivo): 2 = "Indiferente/No"
 	p.Set("serviciosAdicionales", "2")
 	p.Set("permanencia", "2")
 	p.Set("revisionPrecios", "2")
-	p.Set("perfilConsumo", "13") // 13 = Estàndard 2.0TD
+	p.Set("perfilConsumo", "13") // 13 = Estándar 2.0TD
 	p.Set("cups", "0000")
 	p.Set("vivienda", "true")
 	p.Set("factura", "true")
@@ -191,12 +189,12 @@ func buildParams(q Query) url.Values {
 	p.Set("consumoAnualGOrig", "0")
 	p.Set("idAuditoriaQR", "0")
 
-	// Dates (epoch ms)
-	p.Set("dateInicio", strconv.FormatInt(inici.UnixMilli(), 10))
-	p.Set("dateFin", strconv.FormatInt(fi.UnixMilli(), 10))
-	p.Set("fFact", strconv.FormatInt(fi.UnixMilli(), 10))
+	// Fechas (epoch ms)
+	p.Set("dateInicio", strconv.FormatInt(start.UnixMilli(), 10))
+	p.Set("dateFin", strconv.FormatInt(end.UnixMilli(), 10))
+	p.Set("fFact", strconv.FormatInt(end.UnixMilli(), 10))
 
-	// Camps auxiliars a 0 (l'API els espera presents)
+	// Campos auxiliares a 0 (el API los espera presentes)
 	for _, k := range []string{
 		"importe", "tc", "bs", "impSA", "impOtros", "exc", "reg", "mecanismoAjuste",
 		"importeMecanismoAjustePunta", "importeMecanismoAjusteLlano", "importeMecanismoAjusteValle",

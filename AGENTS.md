@@ -1,98 +1,100 @@
 # AGENTS.md — solar-tariff-compare
 
-Guia per a agents (opencode, Claude Code, Cursor, ...) per conduir aquesta eina i
-ajudar un usuari a decidir la seva comercialitzadora d'electricitat amb autoconsum FV.
+Guía para agentes (opencode, Claude Code, Cursor, ...) para conducir esta
+herramienta y ayudar a un usuario a decidir su comercializadora de electricidad con
+autoconsumo FV.
 
-## Què fa l'eina
+## Qué hace la herramienta
 
-CLI en Go (binari únic) que, donada la corba de consum horària real (CCH) i
-opcionalment la producció FV (PVGIS estimat o CSV real):
+CLI en Go (binario único) que, dada la curva de consumo horaria real (CCH) y
+opcionalmente la producción FV (PVGIS estimado o CSV real):
 
-1. **Compara ofertes** contra l'API pública del comparador de la **CNMC**
-   ( consum agregat en períodes P1/P2/P3 de la tarifa 2.0TD, amb festius).
-2. **Simula excedents** hora a hora amb preus d'**e-sios** (PVPC horari + preu
-   d'excedents regulat), comparant esquemes: regulada, indexada i **bateria virtual**.
+1. **Compara ofertas** contra el API pública del comparador de la **CNMC**
+   (consumo agregado en períodos P1/P2/P3 de la tarifa 2.0TD, con festivos).
+2. **Simula excedentes** hora a hora con precios de **e-sios** (PVPC horario +
+   precio de excedentes regulado), comparando esquemas: regulada, indexada y
+   **batería virtual**.
 
-## Quan fer-la servir
+## Cuándo usarla
 
-- L'usuari té plaques (o les planifica) i vol triar comercialitzadora.
-- L'usuari té el seu CSV de corba horària (CCH d'e-distribución).
-- Vols comparar excedents indexats vs bateria virtual per al seu perfil.
+- El usuario tiene placas (o las planea) y quiere elegir comercializadora.
+- El usuario tiene su CSV de curva horaria (CCH de e-distribución).
+- Quieres comparar excedentes indexados vs batería virtual para su perfil.
 
-## Invocació típica
+## Invocación típica
 
 ```bash
-# 1. Només consum (sense FV): ranking CNMC
-solar-tariff-compare -consum corba.csv -cp 8001 -top 20
+# 1. Sólo consumo (sin FV): ranking CNMC
+solar-tariff-compare -consum curva.csv -cp 8001 -top 20
 
-# 2. Amb FV estimada (PVGIS) + comparativa excedents (la decisió clau)
-solar-tariff-compare -consum corba.csv -cp 8001 -kwp 4.1 -sim -top 10
+# 2. Con FV estimada (PVGIS) + comparativa de excedentes (la decisión clave)
+solar-tariff-compare -consum curva.csv -cp 8001 -kwp 4.1 -sim -top 10
 
-# 3. Amb producció real (CSV de 7 columnes): més precís que PVGIS
-solar-tariff-compare -consum consum.csv -prod produccio.csv -cp 8001 -sim
+# 3. Con producción real (CSV de 7 columnas): más preciso que PVGIS
+solar-tariff-compare -consum consumo.csv -prod produccion.csv -cp 8001 -sim
 
-# 4. Sortida JSON (per parsejar programàticament)
-solar-tariff-compare -consum corba.csv -cp 8001 -kwp 4.1 -sim -json
+# 4. Salida JSON (para parsear programáticamente)
+solar-tariff-compare -consum curva.csv -cp 8001 -kwp 4.1 -sim -json
 ```
 
-## Llegir la sortida (per recomanar)
+## Leer la salida (para recomendar)
 
-La sortida té tres blocs:
+La salida tiene tres bloques:
 
-1. **Resum consum/FV**: `Consum: X kWh/any (P1..P2..P3..)` i `Producció FV: ... | autoconsum | excedents | cobertura`.
-2. **Ranking CNMC** (`top_ofertes`): ofertes per `importePrimerAnio` (inclou tot: energia, potència, fixos, impostos). Però **sense compensar excedents** — és el cost del consum net.
-3. **Simulació d'excedents** (`esquemes_excedents`, només amb `-sim`): `energia_neta` = terme d'energia anual **després** de compensar excedents. **Només terme d'energia** (sense fixos: potència, lloguer, impostos — comuns a totes les ofertes i cal afegir-los a part).
+1. **Resumen consumo/FV**: `Consumo: X kWh/año (P1..P2..P3..)` y `Producción FV: ... | autoconsumo | excedentes | cobertura`.
+2. **Ranking CNMC** (`top_offers`): ofertas por `importePrimerAnio` (incluye todo: energía, potencia, fijos, impuestos). Pero **sin compensar excedentes** — es el coste del consumo neto.
+3. **Simulación de excedentes** (`surplus_schemes`, sólo con `-sim`): `net_energy_eur` = término de energía anual **después** de compensar excedentes. **Sólo término de energía** (sin fijos: potencia, alquiler, impuestos — comunes a todas las ofertas y a añadir apart).
 
-### Lògica de decisió
+### Lógica de decisión
 
-- L'esqueme amb **menys `energia_neta`** és el millor per al perfil de l'usuari.
-- Per a perfils FV amb **molt excedent** (autoconsum < 40%, cobertura < 50%), la
-  **bateria virtual** sol guanyar perquè valora els excedents al preu de consum i
-  té sostre anual (porta saldo entre mesos).
-- Per a perfils amb **poc excedent** o consum nocturn dominant, la diferència és menor.
-- `compensacio_perduda` alta = diners "perduts" pel sostre (surt al COP sobretot a
-  l'estiu amb indexada mensual).
+- El esquema con **menos `net_energy_eur`** es el mejor para el perfil del usuario.
+- Para perfiles FV con **mucho excedente** (autoconsumo < 40%, cobertura < 50%), la
+  **batería virtual** suele ganar porque valora los excedentes al precio de consumo y
+  tiene techo anual (lleva saldo entre meses).
+- Para perfiles con **poco excedente** o consumo nocturno dominante, la diferencia es menor.
+- `lost_compensation_eur` alta = dinero "perdido" por el techo (sobre todo en verano
+  con indexada mensual).
 
-### Composar el cost total anual aproximat
+### Componer el coste total anual aproximado
 
 ```
-cost_total ≈ importePrimerAnio (del ranking CNMC, ja amb tots els fixos)
-             − (energia_neta_sense_FV − energia_neta_amb_scheme)
+coste_total ≈ importePrimerAnio (del ranking CNMC, ya con todos los fijos)
+              − (net_energy_sin_FV − net_energy_con_esquema)
 ```
-On "energia_neta_sense_FV" és el terme d'energia sense excedents (simulació amb
-producció 0). Els termes fixos (~potència + lloguer + IE + IVA) ja venen dins de
-`importePrimerAnio`; la simulació d'excedents només mou el terme d'energia.
+Donde "net_energy_sin_FV" es el término de energía sin excedentes (simulación con
+producción 0). Los términos fijos (~potencia + alquiler + IE + IVA) ya vienen dentro
+de `importePrimerAnio`; la simulación de excedentes sólo mueve el término de energía.
 
-## Tokens i dependències
+## Tokens y dependencias
 
-- **e-sios**: sense `ESIOS_TOKEN` només es pot obtenir **l'últim dia** de preus
-  (`fuente: "latest"`), que es fa servir com a perfil horari representatiu de tot
-  l'any. Per precisió (històric d'un any), demaneu a l'usuari un token gratuït a
-  https://api.esios.ree.es i definiu `ESIOS_TOKEN`. Si la sortida mostra
-  `fuente: latest`, advertiu que els absoluts són orientatius però la jerarquia
-  d'esquemes sol mantenir-se.
-- **curl**: la baixada d'e-sios es fa via `curl` (e-sios bloqueja per fingerprint
-  TLS el client de Go). `curl` ve per defecte a macOS/Linux/Windows 10+.
+- **e-sios**: sin `ESIOS_TOKEN` sólo se puede obtener **el último día** de precios
+  (`source: "latest"`), que se usa como perfil horario representativo de todo el
+  año. Para precisión (histórico de un año), pide al usuario un token gratuito en
+  https://api.esios.ree.es y define `ESIOS_TOKEN`. Si la salida muestra
+  `source: latest`, advierte que los absolutos son orientativos pero la jerarquía
+  de esquemas suele mantenerse.
+- **curl**: la descarga de e-sios se hace vía `curl` (e-sios bloquea por fingerprint
+  TLS el cliente de Go). `curl` viene por defecto en macOS/Linux/Windows 10+.
 
-## Limitacions a comunicar a l'usuari
+## Limitaciones a comunicar al usuario
 
-- El comparador CNMC **no contempla excedents ni bateria virtual**; només els modela
-  aquesta simulació.
-- Els termes fixos no es modelen esquema a esquema (són comuns); les xifres
-  absolutes de la simulació són terme d'energia, no factura final.
-- Els coeficients/primes de cada comercialitzadora són aproximats i canvien; el
-  registre (`solartrack/excedents.go` `SchemesRegistre`) és editable.
+- El comparador CNMC **no contempla excedentes ni batería virtual**; sólo los modela
+  esta simulación.
+- Los términos fijos no se modelan esquema a esquema (son comunes); las cifras
+  absolutas de la simulación son término de energía, no factura final.
+- Los coeficientes/primas de cada comercializadora son aproximados y cambian; el
+  registro (`solartrack/excedents.go` `SchemesRegistry`) es editable.
 
 ## Tests
 
 ```bash
-go test ./... -skip _Live        # ràpids (sense xarxa)
-SOLARTRACK_SKIP_LIVE= go test ./...  # amb integració (CNMC + PVGIS + e-sios)
+go test ./... -skip _Live        # rápidos (sin red)
+SOLARTRACK_SKIP_LIVE= go test ./...  # con integración (CNMC + PVGIS + e-sios)
 ```
 
-## Error freqüent
+## Errores frecuentes
 
-- `CNMC HTTP 400`: els kWh han de ser enters (l'eina ja hi arrodoneix; si apareix,
-  reviseu que no s'injectin decimals externs).
-- `e-sios 403`: sense token i filtrant per geo. L'eina ja evita el filtre geo; si
-  persisteix, cal `ESIOS_TOKEN`.
+- `CNMC HTTP 400`: los kWh deben ser enteros (la herramienta ya redondea; si aparece,
+  revisa que no se inyecten decimales externos).
+- `e-sios 403`: sin token y filtrando por geo. La herramienta ya evita el filtro geo;
+  si persiste, hace falta `ESIOS_TOKEN`.

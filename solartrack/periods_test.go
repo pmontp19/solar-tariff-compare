@@ -76,11 +76,11 @@ func TestPeriodFor_ViernesSanto(t *testing.T) {
 	}
 }
 
-func TestFestiusEspanya_Count(t *testing.T) {
-	// 8 fixos + Divendres Sant = 9 festius nacionals el 2025
-	f := FestiusEspanya(2025)
+func TestSpanishHolidays_Count(t *testing.T) {
+	// 8 fijos + Viernes Santo = 9 festivos nacionales en 2025
+	f := SpanishHolidays(2025)
 	if len(f) != 9 {
-		t.Errorf("2025: esperava 9 festius nacionals, got %d", len(f))
+		t.Errorf("2025: esperaba 9 festivos nacionales, got %d", len(f))
 	}
 }
 

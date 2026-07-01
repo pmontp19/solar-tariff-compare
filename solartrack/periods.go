@@ -1,16 +1,17 @@
-// Package solartrack compares Spanish electricity tariffs from the CNMC public API
-// against a real consumption curve, optionally with self-consumed solar production.
+// Package solartrack compara tarifas de electricidad españolas desde el API
+// pública de la CNMC frente a una curva de consumo real, opcionalmente con
+// autoconsumo fotovoltaico.
 package solartrack
 
 import "time"
 
-// Period és un període de la tarifa 2.0TD espanyola (RD 1484/2021).
+// Period es un período de la tarifa española 2.0TD (RD 1484/2021).
 type Period int
 
 const (
-	PeriodPunta Period = 1 // P1 — dies feiners 10:00-14:00 i 18:00-22:00
-	PeriodLlano Period = 2 // P2 — dies feiners 08:00-10:00, 14:00-18:00, 22:00-24:00
-	PeriodValle Period = 3 // P3 — dies feiners 00:00-08:00, cap de setmana i festius
+	PeriodPunta Period = 1 // P1 — días laborables 10:00-14:00 y 18:00-22:00
+	PeriodLlano Period = 2 // P2 — días laborables 08:00-10:00, 14:00-18:00, 22:00-24:00
+	PeriodValle Period = 3 // P3 — días laborables 00:00-08:00, fines de semana y festivos
 )
 
 func (p Period) Label() string {
@@ -24,72 +25,73 @@ func (p Period) Label() string {
 	}
 }
 
-// horesPunta són les hores d'inici (rellotge local 0-23) en P1 un dia feiner.
-var horesPunta = map[int]bool{10: true, 11: true, 12: true, 13: true, 18: true, 19: true, 20: true, 21: true}
-var horesLlano = map[int]bool{8: true, 9: true, 14: true, 15: true, 16: true, 17: true, 22: true, 23: true}
+// puntaHours son las horas de inicio (reloj local 0-23) en P1 un día laborable.
+var puntaHours = map[int]bool{10: true, 11: true, 12: true, 13: true, 18: true, 19: true, 20: true, 21: true}
+var llanoHours = map[int]bool{8: true, 9: true, 14: true, 15: true, 16: true, 17: true, 22: true, 23: true}
 
-// HolidayCalendar retorna el conjunt de dates festives per a un any.
-// Per defecte usa FestiusEspanya; es pot sobreescriure per a festius autonòmics/locals.
+// HolidayCalendar devuelve el conjunto de fechas festivas de un año.
+// Por defecto usa SpanishHolidays; se puede sobrescribir para festivos
+// autonómicos/locales.
 type HolidayCalendar func(year int) map[time.Time]bool
 
-// dateKey normalitza una data a migdia UTC per usar-la com a clau estable
-// (time.Time com a map key no és igual si difereix la Location).
-func dateKey(year int, m time.Month, day int) time.Time {
-	return time.Date(year, m, day, 12, 0, 0, 0, time.UTC)
-}
-
-// PeriodFor retorna el període d'un instant en hora local peninsular.
-// Si holidays és nil, usa FestiusEspanya.
+// PeriodFor devuelve el período de un instante en hora local peninsular.
+// Si holidays es nil, usa SpanishHolidays.
 func PeriodFor(t time.Time, holidays HolidayCalendar) Period {
-	// Cap de setmana -> Valle
+	// Fin de semana -> Valle
 	if t.Weekday() == time.Saturday || t.Weekday() == time.Sunday {
 		return PeriodValle
 	}
-	// Festius -> Valle (comparació per dia, ignorant la zona horària)
+	// Festivos -> Valle (comparación por día, ignorando la zona horaria)
 	hc := holidays
 	if hc == nil {
-		hc = FestiusEspanya
+		hc = SpanishHolidays
 	}
 	key := dateKey(t.Year(), t.Month(), t.Day())
 	if hc(t.Year())[key] {
 		return PeriodValle
 	}
 	h := t.Hour()
-	if horesPunta[h] {
+	if puntaHours[h] {
 		return PeriodPunta
 	}
-	if horesLlano[h] {
+	if llanoHours[h] {
 		return PeriodLlano
 	}
 	return PeriodValle // 0-7h
 }
 
-// FestiusEspanya retorna els festius nacionals espanyols (península/Baleares)
-// d'un any: fixos + Divendres Sant (calculat a partir de la Pasqua).
-// Es poden afegir festius autonòmics/locals passant-los a la vostra pròpia HolidayCalendar.
-func FestiusEspanya(year int) map[time.Time]bool {
+// dateKey normaliza una fecha a mediodía UTC para usarla como clave estable
+// (time.Time como map key no es igual si difiere la Location).
+func dateKey(year int, m time.Month, day int) time.Time {
+	return time.Date(year, m, day, 12, 0, 0, 0, time.UTC)
+}
+
+// SpanishHolidays devuelve los festivos nacionales españoles (península/Baleares)
+// de un año: fijos + Viernes Santo (calculado a partir de Pascua).
+// Se pueden añadir festivos autonómicos/locales pasándolos en su propia HolidayCalendar.
+func SpanishHolidays(year int) map[time.Time]bool {
 	out := make(map[time.Time]bool)
 	add := func(m time.Month, d int) {
 		out[dateKey(year, m, d)] = true
 	}
-	// Festius fixos nacionals
-	add(time.January, 1)   // Any Nou
-	add(time.January, 6)   // Reis
-	add(time.May, 1)       // Dia del Treballador
-	add(time.October, 12)  // Festa Nacional d'Espanya
-	add(time.November, 1)  // Tots Sants
-	add(time.December, 6)  // Dia de la Constitució
-	add(time.December, 8)  // Inmaculada Concepció
-	add(time.December, 25) // Nadal
-	// Divendres Sant: divendres anterior al diumenge de Pasqua
+	// Festivos fijos nacionales
+	add(time.January, 1)   // Año Nuevo
+	add(time.January, 6)   // Reyes
+	add(time.May, 1)       // Día del Trabajador
+	add(time.October, 12)  // Fiesta Nacional de España
+	add(time.November, 1)  // Todos los Santos
+	add(time.December, 6)  // Día de la Constitución
+	add(time.December, 8)  // Inmaculada Concepción
+	add(time.December, 25) // Navidad
+	// Viernes Santo: viernes anterior al domingo de Pascua
 	easter := easterSunday(year)
 	viernesSanto := easter.AddDate(0, 0, -2)
 	out[dateKey(year, viernesSanto.Month(), viernesSanto.Day())] = true
 	return out
 }
 
-// easterSunday calcula el diumenge de Pasqua (còmput gregorià) via l'algoritme
-// de Meeus/Jones/Butcher. Vàlid per a anys del 1583 en endavant.
+// easterSunday calcula el domingo de Pascua (cómputo gregoriano) mediante el
+// algoritmo de Meeus/Jones/Butcher. Válido para años a partir de 1583.
 func easterSunday(year int) time.Time {
 	a := year % 19
 	b := year / 100

@@ -10,35 +10,35 @@ import (
 	"time"
 )
 
-// PVGIS és l'API de la Comissió Europea per estimar producció fotovoltaica.
-// Vegeu https://joint-research-centre.ec.europa.eu/pvgis-photovoltaic-geographical-information-system_en
+// PVGIS es el API de la Comisión Europea para estimar producción fotovoltaica.
+// Véase https://joint-research-centre.ec.europa.eu/pvgis-photovoltaic-geographical-information-system_en
 const pvgisURL = "https://re.jrc.ec.europa.eu/api/seriescalc"
 
-// PVGISParams defineix una instal·lació FV per estimar-ne la producció horària.
+// PVGISParams define una instalación FV para estimar su producción horaria.
 type PVGISParams struct {
-	Lat       float64 // Latitud (p.ex. 41.38 per Barcelona)
-	Lon       float64 // Longitud (p.ex. 2.17)
-	PeakPower float64 // Potència de pic en kW (p.ex. 3.5 → ~10 plaques de 350W)
-	Angle     float64 // Inclinació en graus (0=pla, 35=típic residencial)
-	Aspect    float64 // Orientació en graus (0=sud, -90=est, 90=oest)
-	Loss      float64 // Pèrdues del sistema en % (14 és un valor típic per defecte)
-	Mounting  string  // "free" (terra/teulada) o "building" (integrat)
-	Tech      string  // "crystSi" (silici cristal·lí), "CIS", "CdTe"
+	Lat       float64 // Latitud (p.ej. 41.38 para Barcelona)
+	Lon       float64 // Longitud (p.ej. 2.17)
+	PeakPower float64 // Potencia de pico en kW (p.ej. 3.5 → ~10 paneles de 350W)
+	Angle     float64 // Inclinación en grados (0=plano, 35=típico residencial)
+	Aspect    float64 // Orientación en grados (0=sur, -90=este, 90=oeste)
+	Loss      float64 // Pérdidas del sistema en % (14 es un valor típico por defecto)
+	Mounting  string  // "free" (suelo/techo) o "building" (integrado)
+	Tech      string  // "crystSi" (silicio cristalino), "CIS", "CdTe"
 }
 
-// PerfilProd és la producció horària estimada (kWh) clau per (mes, hora-del-dia).
-// Es deriva d'un TMY (any meteorològic tipus) de PVGIS.
-type PerfilProd struct {
-	ByMonthHour [12][24]float64 // kWh mitjans per mes (0=gen) i hora (0-23)
-	AnualKWh    float64
+// ProductionProfile es la producción horaria estimada (kWh) indexada por
+// (mes, hora-del-día). Se deriva de un TMY (año meteorológico típico) de PVGIS.
+type ProductionProfile struct {
+	ByMonthHour [12][24]float64 // kWh medios por mes (0=ene) y hora (0-23)
+	AnnualKWh   float64
 }
 
-// pvgisHour és una fila horària de la resposta de PVGIS. PVGIS seriescalc
-// retorna irradiància G(i) en W/m² al pla (no la potència), per la qual cosa la
-// calculem a partir de PeakPower i les pèrdues.
+// pvgisHour es una fila horaria de la respuesta de PVGIS. PVGIS seriescalc
+// devuelve irradiancia G(i) en W/m² en el plano (no la potencia), por lo que la
+// calculamos a partir de PeakPower y las pérdidas.
 type pvgisHour struct {
 	Time string  `json:"time"` // "YYYYMMDD:HHMM"
-	GI   float64 `json:"G(i)"` // Irradiància global al pla [W/m²]
+	GI   float64 `json:"G(i)"` // Irradiancia global en el plano [W/m²]
 }
 
 type pvgisResponse struct {
@@ -47,11 +47,11 @@ type pvgisResponse struct {
 	} `json:"outputs"`
 }
 
-// FetchPerfilPVGIS descarrega el TMY horari de PVGIS i l'agrega en un perfil
-// mes×hora (kWh mitjans per cada combinació de mes i hora del dia).
-func FetchPerfilPVGIS(p PVGISParams) (*PerfilProd, error) {
+// FetchPVGISProfile descarga el TMY horario de PVGIS y lo agrega en un perfil
+// mes×hora (kWh medios para cada combinación de mes y hora del día).
+func FetchPVGISProfile(p PVGISParams) (*ProductionProfile, error) {
 	if p.PeakPower <= 0 {
-		return nil, fmt.Errorf("peakpower ha de ser > 0")
+		return nil, fmt.Errorf("peakpower debe ser > 0")
 	}
 	if p.Loss == 0 {
 		p.Loss = 14
@@ -93,62 +93,59 @@ func FetchPerfilPVGIS(p PVGISParams) (*PerfilProd, error) {
 	if err := json.NewDecoder(resp.Body).Decode(&pr); err != nil {
 		return nil, fmt.Errorf("decodifica PVGIS: %w", err)
 	}
-	return aggregaPerfil(pr.Outputs.Hourly, p), nil
+	return aggregateProfile(pr.Outputs.Hourly, p), nil
 }
 
-// aggregaPerfil converteix les hores de la sèrie històrica de PVGIS en un perfil
-// mes×hora mitjà (kWh). Com que PVGIS pot retornar múltiples anys (fins a ~19),
-// fer la mitjana per mes×hora suavitza la variabilitat interanual.
+// aggregateProfile convierte las horas de la serie histórica de PVGIS en un perfil
+// mes×hora medio (kWh). Como PVGIS puede devolver varios años (hasta ~19), hacer la
+// media por mes×hora suaviza la variabilidad interanual.
 //
-// Energia horària (kWh) = PeakPower_kW × G(i)[W/m²]/1000 × (1 − loss/100).
-// (Aproximació lineal a STC; ignora la degradació per temperatura, prou precisa
-// per a una estimació de perfil.)
-func aggregaPerfil(hores []pvgisHour, p PVGISParams) *PerfilProd {
-	perfil := &PerfilProd{}
-	loss := 0.86 // (1 − 14/100) per defecte
+// Energía horaria (kWh) = PeakPower_kW × G(i)[W/m²]/1000 × (1 − loss/100).
+// (Aproximación lineal a STC; ignora la degradación por temperatura, suficientemente
+// precisa para una estimación de perfil.)
+func aggregateProfile(horas []pvgisHour, p PVGISParams) *ProductionProfile {
+	perfil := &ProductionProfile{}
+	loss := 0.86 // (1 − 14/100) por defecto
 	if p.Loss > 0 {
 		loss = 1 - p.Loss/100
 	}
 	var suma [12][24]float64
-	var comte [12][24]int
-	for _, h := range hores {
+	var cuenta [12][24]int
+	for _, h := range horas {
 		mes, hora, ok := parsePVGISTime(h.Time)
 		if !ok {
 			continue
 		}
 		kwh := p.PeakPower * h.GI / 1000.0 * loss
 		suma[mes][hora] += kwh
-		comte[mes][hora]++
+		cuenta[mes][hora]++
 	}
 	for m := 0; m < 12; m++ {
 		for hr := 0; hr < 24; hr++ {
-			if comte[m][hr] > 0 {
-				perfil.ByMonthHour[m][hr] = suma[m][hr] / float64(comte[m][hr])
-				perfil.AnualKWh += suma[m][hr] / float64(comte[m][hr]) * float64(comte[m][hr]) // = suma
+			if cuenta[m][hr] > 0 {
+				perfil.ByMonthHour[m][hr] = suma[m][hr] / float64(cuenta[m][hr])
 			}
 		}
 	}
-	// Anual = suma de totes les hores del perfil mitjà × (dies representatius)
-	// Però és més net: Anual = suma directa del TMY promocionat. Recalculem com a
-	// perfil mitjà anual (8760 h amb el perfil promig):
-	perfil.AnualKWh = 0
+	// Anual = perfil medio (8760 h) ponderado por días de cada mes.
+	perfil.AnnualKWh = 0
 	for m := 0; m < 12; m++ {
-		dies := diesPerMes(m + 1)
+		days := daysInMonth(m + 1)
 		for hr := 0; hr < 24; hr++ {
-			perfil.AnualKWh += perfil.ByMonthHour[m][hr] * float64(dies)
+			perfil.AnnualKWh += perfil.ByMonthHour[m][hr] * float64(days)
 		}
 	}
 	return perfil
 }
 
-// diesPerMes retorna els dies de cada mes (sense any de traspàs, prou precís).
-func diesPerMes(m int) int {
+// daysInMonth devuelve los días de cada mes (sin año bisiesto, suficientemente preciso).
+func daysInMonth(m int) int {
 	return []int{31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31}[m-1]
 }
 
 // parsePVGISTime interpreta "YYYYMMDD:HHMM" -> (mes 0-11, hora 0-23).
 func parsePVGISTime(s string) (mes, hora int, ok bool) {
-	// Format: 20210101:0010  (any,mes,dia : hora,min)
+	// Formato: 20210101:0010  (año,mes,día : hora,min)
 	if len(s) < 11 {
 		return 0, 0, false
 	}
@@ -160,97 +157,97 @@ func parsePVGISTime(s string) (mes, hora int, ok bool) {
 	if err1 != nil || err2 != nil || m < 1 || m > 12 {
 		return 0, 0, false
 	}
-	// PVGIS marca l'inici de l'interval; hours poden anar 0-23
+	// PVGIS marca el inicio del intervalo; las horas van de 0 a 23.
 	if hh < 0 || hh > 23 {
 		return 0, 0, false
 	}
 	return m - 1, hh, true
 }
 
-// ResultatAutoconsum és el resultat d'overlay de producció FV sobre consum real.
-type ResultatAutoconsum struct {
-	ProduccioKWh  float64 // producció FV total estimada
-	AutoconsumKWh float64 // producció consumida in situ
-	ExcedentsKWh  float64 // producció bolcada a la xarxa
-	IndexAutocons float64 // ratio autoconsum = autoconsum / producció (0..1)
-	Cobertura     float64 // ratio de consum cobert per FV = autoconsum / consum
+// AutoconsumptionResult es el resultado de superponer producción FV sobre consumo real.
+type AutoconsumptionResult struct {
+	ProductionKWh   float64 // producción FV total estimada
+	SelfConsumedKWh float64 // producción consumida in situ
+	SurplusKWh      float64 // producción vertida a la red
+	SelfConsumRatio float64 // ratio de autoconsumo = autoconsumo / producción (0..1)
+	Coverage        float64 // ratio de consumo cubierto por FV = autoconsumo / consumo
 }
 
-// OverlayProduccio aplica un perfil FV (mes×hora) sobre la corba de consum real
-// i calcula l'autoconsum i els excedents hora a hora.
-func OverlayProduccio(consum map[time.Time]float64, perfil *PerfilProd) ResultatAutoconsum {
-	var r ResultatAutoconsum
-	for t, c := range consum {
+// OverlayProduction aplica un perfil FV (mes×hora) sobre la curva de consumo real
+// y calcula el autoconsumo y los excedentes hora a hora.
+func OverlayProduction(consumption map[time.Time]float64, perfil *ProductionProfile) AutoconsumptionResult {
+	var r AutoconsumptionResult
+	for t, c := range consumption {
 		prod := perfil.ByMonthHour[int(t.Month())-1][t.Hour()]
 		if prod <= 0 {
 			continue
 		}
-		r.ProduccioKWh += prod
+		r.ProductionKWh += prod
 		auto := prod
 		if auto > c {
-			auto = c // només es pot autoconsumir fins al consum de l'hora
+			auto = c // sólo se puede autoconsumir hasta el consumo de la hora
 		}
-		r.AutoconsumKWh += auto
-		r.ExcedentsKWh += prod - auto
+		r.SelfConsumedKWh += auto
+		r.SurplusKWh += prod - auto
 	}
-	if r.ProduccioKWh > 0 {
-		r.IndexAutocons = r.AutoconsumKWh / r.ProduccioKWh
+	if r.ProductionKWh > 0 {
+		r.SelfConsumRatio = r.SelfConsumedKWh / r.ProductionKWh
 	}
-	var consumTotal float64
-	for _, c := range consum {
-		consumTotal += c
+	var totalConsumption float64
+	for _, c := range consumption {
+		totalConsumption += c
 	}
-	if consumTotal > 0 {
-		r.Cobertura = r.AutoconsumKWh / consumTotal
+	if totalConsumption > 0 {
+		r.Coverage = r.SelfConsumedKWh / totalConsumption
 	}
 	return r
 }
 
-// Aplicar expandeix un perfil mes×hora a una corba horària alineada amb les
-// marques temporals de la corba de consum (per poder fer l'overlay hora a hora).
-func (p *PerfilProd) Aplicar(consum map[time.Time]float64) map[time.Time]float64 {
-	out := make(map[time.Time]float64, len(consum))
-	for t := range consum {
+// Apply expande un perfil mes×hora a una curva horaria alineada con las marcas
+// temporales de la curva de consumo (para poder hacer el overlay hora a hora).
+func (p *ProductionProfile) Apply(consumption map[time.Time]float64) map[time.Time]float64 {
+	out := make(map[time.Time]float64, len(consumption))
+	for t := range consumption {
 		out[t] = p.ByMonthHour[int(t.Month())-1][t.Hour()]
 	}
 	return out
 }
 
-// OverlayCurves computa l'autoconsum i els excedents de dues corbes horàries
-// (consum i producció reals). Útil quan es té un CSV de producció real.
-func OverlayCurves(consum, prod map[time.Time]float64) ResultatAutoconsum {
-	var r ResultatAutoconsum
-	for t, c := range consum {
-		p := prod[t]
-		r.ProduccioKWh += p
+// OverlayCurves calcula el autoconsumo y los excedentes de dos curvas horarias
+// (consumo y producción reales). Útil cuando se dispone de un CSV de producción real.
+func OverlayCurves(consumption, production map[time.Time]float64) AutoconsumptionResult {
+	var r AutoconsumptionResult
+	for t, c := range consumption {
+		p := production[t]
+		r.ProductionKWh += p
 		auto := p
 		if auto > c {
 			auto = c
 		}
-		r.AutoconsumKWh += auto
-		r.ExcedentsKWh += p - auto
+		r.SelfConsumedKWh += auto
+		r.SurplusKWh += p - auto
 	}
-	if r.ProduccioKWh > 0 {
-		r.IndexAutocons = r.AutoconsumKWh / r.ProduccioKWh
+	if r.ProductionKWh > 0 {
+		r.SelfConsumRatio = r.SelfConsumedKWh / r.ProductionKWh
 	}
-	var consumTotal float64
-	for _, c := range consum {
-		consumTotal += c
+	var totalConsumption float64
+	for _, c := range consumption {
+		totalConsumption += c
 	}
-	if consumTotal > 0 {
-		r.Cobertura = r.AutoconsumKWh / consumTotal
+	if totalConsumption > 0 {
+		r.Coverage = r.SelfConsumedKWh / totalConsumption
 	}
 	return r
 }
 
-// ProduccioTotal de la corba = autoconsum + excedents per cada hora (dades reals
-// de CCH amb les columnes AS_KWh i AE_AUTOCONS_kWh).
-func (c Corba) ProduccioTotal() map[time.Time]float64 {
+// TotalProduction de la curva = autoconsumo + excedentes para cada hora (datos
+// reales de CCH con las columnas AS_KWh y AE_AUTOCONS_kWh).
+func (c LoadCurve) TotalProduction() map[time.Time]float64 {
 	out := make(map[time.Time]float64)
-	for t, v := range c.Autoconsum {
+	for t, v := range c.SelfConsumed {
 		out[t] += v
 	}
-	for t, v := range c.Excedents {
+	for t, v := range c.Surplus {
 		out[t] += v
 	}
 	return out

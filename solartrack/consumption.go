@@ -10,33 +10,33 @@ import (
 	"time"
 )
 
-// Corba horària agregada en els seus components. El CSV CCH pot venir en dues
-// variants (5 o 7 columnes); les columnes addicionals porten excedents (AS_KWh)
-// i autoconsum (AE_AUTOCONS_kWh).
-type Corba struct {
-	Consum      map[time.Time]float64 // instant (inici hora) -> kWh consumits
-	Excedents   map[time.Time]float64 // kWh bolcats a la xarxa
-	Autoconsum  map[time.Time]float64 // kWh FV consumits in situ
-	First, Last time.Time
+// LoadCurve es la curva horaria agregada en sus componentes. El CSV CCH puede
+// venir en dos variantes (5 o 7 columnas); las columnas adicionales traen
+// excedentes (AS_KWh) y autoconsumo (AE_AUTOCONS_kWh).
+type LoadCurve struct {
+	Consumption  map[time.Time]float64 // instante (inicio de hora) -> kWh consumidos
+	Surplus      map[time.Time]float64 // kWh vertidos a la red
+	SelfConsumed map[time.Time]float64 // kWh FV consumidos in situ
+	First, Last  time.Time
 }
 
-// CCHInfo és el resultat de carregar i validar un fitxer CCH.
+// CCHInfo es el resultado de cargar y validar un fichero CCH.
 type CCHInfo struct {
-	Corba         Corba
-	ConsumAnalisi ConsumAnalisi // consum agregat P1/P2/P3
-	Rows          int
-	Holes         int // hores mancants dins el rang (forats)
-	EstimatedPct  float64
+	Curve              LoadCurve
+	ConsumptionSummary ConsumptionSummary // consumo agregado P1/P2/P3
+	Rows               int
+	Holes              int // horas faltantes dentro del rango (huecos)
+	EstimatedPct       float64
 }
 
-// ParseCCH llegeix un CSV de corba horària (format e-distribución CCH_CONS).
+// ParseCCH lee un CSV de curva horaria (formato e-distribución CCH_CONS).
 //
-// Capçalera esperada: CUPS;Fecha;Hora;AE_kWh;[AS_KWh;AE_AUTOCONS_kWh;]REAL/ESTIMADO
-//   - Fecha en format DD/MM/YYYY
-//   - Hora 1..24 (1 = interval 00:00-01:00, per tant hora-inici = Hora-1)
-//   - decimals amb coma espanyola (0,168)
+// Cabecera esperada: CUPS;Fecha;Hora;AE_kWh;[AS_KWh;AE_AUTOCONS_kWh;]REAL/ESTIMADO
+//   - Fecha en formato DD/MM/YYYY
+//   - Hora 1..24 (1 = intervalo 00:00-01:00, por tanto hora-inicio = Hora-1)
+//   - decimales con coma española (0,168)
 //
-// Tolerant: ignora la coma decimal i accepta les dues variants de columnes.
+// Tolerante: ignora la coma decimal y acepta ambas variantes de columnas.
 func ParseCCH(path string, holidays HolidayCalendar) (*CCHInfo, error) {
 	f, err := os.Open(path)
 	if err != nil {
@@ -49,19 +49,19 @@ func ParseCCH(path string, holidays HolidayCalendar) (*CCHInfo, error) {
 func ParseCCHReader(r io.Reader, holidays HolidayCalendar) (*CCHInfo, error) {
 	cr := csv.NewReader(r)
 	cr.Comma = ';'
-	cr.FieldsPerRecord = -1 // tolerar 5 o 7 columnes
+	cr.FieldsPerRecord = -1 // tolerar 5 o 7 columnas
 
 	header, err := cr.Read()
 	if err != nil {
-		return nil, fmt.Errorf("llegint capçalera: %w", err)
+		return nil, fmt.Errorf("leyendo cabecera: %w", err)
 	}
 	idx := indexHeader(header)
 
 	loc, _ := time.LoadLocation("Europe/Madrid")
-	info := &CCHInfo{Corba: Corba{
-		Consum: map[time.Time]float64{}, Excedents: map[time.Time]float64{}, Autoconsum: map[time.Time]float64{},
+	info := &CCHInfo{Curve: LoadCurve{
+		Consumption: map[time.Time]float64{}, Surplus: map[time.Time]float64{}, SelfConsumed: map[time.Time]float64{},
 	}}
-	var estimat, total int
+	var estimado, total int
 
 	for {
 		rec, err := cr.Read()
@@ -69,7 +69,7 @@ func ParseCCHReader(r io.Reader, holidays HolidayCalendar) (*CCHInfo, error) {
 			break
 		}
 		if err != nil {
-			return nil, fmt.Errorf("llegint fila: %w", err)
+			return nil, fmt.Errorf("leyendo fila: %w", err)
 		}
 		if len(rec) < 4 {
 			continue
@@ -78,47 +78,47 @@ func ParseCCHReader(r io.Reader, holidays HolidayCalendar) (*CCHInfo, error) {
 		if !ok {
 			continue
 		}
-		consum, _ := parseSpanishFloat(rec[idx.ae])
-		if consum > 0 {
-			info.Corba.Consum[dt] += consum
+		consumo, _ := parseSpanishFloat(rec[idx.ae])
+		if consumo > 0 {
+			info.Curve.Consumption[dt] += consumo
 			p := PeriodFor(dt, holidays)
-			info.ConsumAnalisi.Anual += consum
+			info.ConsumptionSummary.Annual += consumo
 			switch p {
 			case PeriodPunta:
-				info.ConsumAnalisi.P1 += consum
+				info.ConsumptionSummary.P1 += consumo
 			case PeriodLlano:
-				info.ConsumAnalisi.P2 += consum
+				info.ConsumptionSummary.P2 += consumo
 			default:
-				info.ConsumAnalisi.P3 += consum
+				info.ConsumptionSummary.P3 += consumo
 			}
 		}
 		if idx.as >= 0 && len(rec) > idx.as {
 			if v, ok := parseSpanishFloat(rec[idx.as]); ok && v > 0 {
-				info.Corba.Excedents[dt] += v
+				info.Curve.Surplus[dt] += v
 			}
 		}
 		if idx.auto >= 0 && len(rec) > idx.auto {
 			if v, ok := parseSpanishFloat(rec[idx.auto]); ok && v > 0 {
-				info.Corba.Autoconsum[dt] += v
-				info.ConsumAnalisi.AutoconsumKWh += v
+				info.Curve.SelfConsumed[dt] += v
+				info.ConsumptionSummary.SelfConsumedKWh += v
 			}
 		}
-		if info.Corba.First.IsZero() || dt.Before(info.Corba.First) {
-			info.Corba.First = dt
+		if info.Curve.First.IsZero() || dt.Before(info.Curve.First) {
+			info.Curve.First = dt
 		}
-		if dt.After(info.Corba.Last) {
-			info.Corba.Last = dt
+		if dt.After(info.Curve.Last) {
+			info.Curve.Last = dt
 		}
 		info.Rows++
 		total++
 		if idx.est >= 0 && len(rec) > idx.est && strings.HasPrefix(strings.ToUpper(rec[idx.est]), "E") {
-			estimat++
+			estimado++
 		}
 	}
 	if total > 0 {
-		info.EstimatedPct = 100 * float64(estimat) / float64(total)
+		info.EstimatedPct = 100 * float64(estimado) / float64(total)
 	}
-	info.Holes = countHoles(info.Corba.First, info.Corba.Last, info.Corba.Consum, holidays)
+	info.Holes = countHoles(info.Curve.First, info.Curve.Last, info.Curve.Consumption, holidays)
 	return info, nil
 }
 
@@ -163,11 +163,11 @@ func parseDateTime(fecha, hora string, loc *time.Location) (time.Time, bool) {
 	if err != nil || h < 1 || h > 24 {
 		return time.Time{}, false
 	}
-	// Hora 1..24 -> hora-inici = Hora-1 (00..23)
+	// Hora 1..24 -> hora-inicio = Hora-1 (00..23)
 	return time.Date(dt.Year(), dt.Month(), dt.Day(), h-1, 0, 0, 0, loc), true
 }
 
-// parseSpanishFloat converteix "0,168" -> 0.168. Retorna 0 ok=false si buit/no vàlid.
+// parseSpanishFloat convierte "0,168" -> 0.168. Devuelve 0, false si vacío/no válido.
 func parseSpanishFloat(s string) (float64, bool) {
 	s = strings.TrimSpace(s)
 	if s == "" {
@@ -181,14 +181,15 @@ func parseSpanishFloat(s string) (float64, bool) {
 	return v, true
 }
 
-// countHoles estima hores mancants al rang (una corba completa té ~8760 hores/any).
-func countHoles(first, last time.Time, consum map[time.Time]float64, holidays HolidayCalendar) int {
+// countHoles estima las horas faltantes en el rango (una curva completa tiene
+// ~8760 horas/año).
+func countHoles(first, last time.Time, consumo map[time.Time]float64, holidays HolidayCalendar) int {
 	if first.IsZero() || last.IsZero() {
 		return 0
 	}
 	holes := 0
 	for t := first; !t.After(last); t = t.Add(time.Hour) {
-		if _, ok := consum[t]; !ok {
+		if _, ok := consumo[t]; !ok {
 			holes++
 		}
 	}
