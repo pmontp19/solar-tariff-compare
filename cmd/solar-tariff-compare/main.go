@@ -55,8 +55,8 @@ func main() {
 		os.Exit(2)
 	}
 
-	// 1. Carga la curva de consumo
-	info, err := st.ParseCCH(*consumPath, nil)
+	// 1. Carga la curva de consumo (auto-detecta formato Datadis o CCH e-distribución)
+	info, err := st.ParseConsumption(*consumPath, nil)
 	if err != nil {
 		fatal("leyendo consumo: %v", err)
 	}
@@ -95,14 +95,44 @@ func main() {
 			autoResult.SurplusKWh, autoResult.Coverage*100)
 	}
 
+	// Excedentes: reales (Datadis / CCH de 7 columnas) o derivados de la producción
+	// estimada por PVGIS. gridImport = consumo neto de red por hora.
+	var surplusCurve map[time.Time]float64
+	gridImport := info.Curve.Consumption
+	if len(info.Curve.Surplus) > 0 {
+		// Excedentes reales: el consumo ya es neto de red y ambos flujos son
+		// mutuamente excluyentes por hora, así que sirven directamente.
+		surplusCurve = info.Curve.Surplus
+		if prodCurve == nil {
+			// Para la simulación de esquemas basada en flujos reales, "producción" = excedentes.
+			prodCurve = surplusCurve
+		}
+	} else if prodCurve != nil {
+		// Deriva excedentes e importación hora a hora de la producción estimada.
+		surplusCurve = map[time.Time]float64{}
+		grid := map[time.Time]float64{}
+		for t, c := range info.Curve.Consumption {
+			p := prodCurve[t]
+			if s := p - c; s > 0 {
+				surplusCurve[t] = s
+			}
+			if b := c - p; b > 0 {
+				grid[t] = b
+			}
+		}
+		gridImport = grid
+	}
+	hasSurplus := len(surplusCurve) > 0
+
 	// 3. Consulta CNMC
 	// Para la consulta "con FV" reducimos el consumo según el autoconsumo FV (la parte
 	// producida y consumida in situ no se paga a la red) y marcamos autoconsumo=true.
+	// Con datos de Datadis el consumo YA es neto de red, así que energiaAutoconsumo=0.
 	csFV := cs
 	if *kwp > 0 || *prodCSV != "" {
 		csFV.SelfConsumedKWh = autoResult.SelfConsumedKWh
 	}
-	hasFV := *kwp > 0 || *prodCSV != ""
+	hasFV := *kwp > 0 || *prodCSV != "" || hasSurplus
 	offersFV, err := st.FetchOffers(st.Query{
 		PostalCode:      *cp,
 		Power:           *potencia,
@@ -112,6 +142,10 @@ func main() {
 	if err != nil {
 		fatal("CNMC: %v", err)
 	}
+	// Aparta las ofertas "artefacto" de la CNMC (importe que no escala con el consumo,
+	// p.ej. la "PVPC Histórico de referencia") para que no contaminen el "más barato".
+	offersFV, suspectFV := st.PartitionSuspectOffers(offersFV)
+	reportSuspect(suspectFV)
 	sort.Slice(offersFV, func(i, j int) bool {
 		return offersFV[i].ImportePrimerAnio < offersFV[j].ImportePrimerAnio
 	})
@@ -126,16 +160,33 @@ func main() {
 		if err != nil {
 			fatal("CNMC (sin FV): %v", err)
 		}
+		offersSinFV, _ = st.PartitionSuspectOffers(offersSinFV) // mismo filtro; aviso ya emitido
 		sort.Slice(offersSinFV, func(i, j int) bool {
 			return offersSinFV[i].ImportePrimerAnio < offersSinFV[j].ImportePrimerAnio
 		})
 	}
 
+	// Ranking integrado: atribuye a cada oferta la compensación de sus excedentes
+	// reales según su comercializadora y ordena por coste NETO anual. Es lo que el
+	// ranking crudo de la CNMC no hace (ignora excedentes).
+	var ranked []st.RankedOffer
+	if hasSurplus && len(offersFV) > 0 {
+		prices, perr := st.FetchHourlyPrices(info.Curve.First, info.Curve.Last)
+		if perr != nil {
+			fmt.Fprintf(os.Stderr, "aviso: sin precios e-sios; no se calcula el ranking neto de excedentes: %v\n", perr)
+		} else {
+			ranked = st.RankOffersWithSurplus(offersFV, gridImport, surplusCurve, prices)
+		}
+	}
+
 	if *asJSON {
-		printJSON(offersFV, autoResult, *top, schemesIfSim(*sim, prodCurve, info))
+		printJSON(offersFV, autoResult, *top, schemesIfSim(*sim, prodCurve, info), ranked)
 		return
 	}
 	printTaula(offersFV, *top, autoResult, hasFV)
+	if len(ranked) > 0 {
+		printRanking(ranked, *top)
+	}
 	if len(offersSinFV) > 0 {
 		fmt.Printf("\n— Sin FV (referencia): la más barata es %.2f €/año —\n", offersSinFV[0].ImportePrimerAnio)
 		if len(offersFV) > 0 {
@@ -235,16 +286,54 @@ type jsonOut struct {
 	NumOfertas      int                      `json:"num_offers"`
 	TopOfertas      []st.Offer               `json:"top_offers"`
 	Schemes         []st.SchemeResult        `json:"surplus_schemes,omitempty"`
+	RankingNet      []st.RankedOffer         `json:"ranking_net,omitempty"`
 }
 
-func printJSON(offers []st.Offer, auto st.AutoconsumptionResult, top int, schemes []st.SchemeResult) {
+func printJSON(offers []st.Offer, auto st.AutoconsumptionResult, top int, schemes []st.SchemeResult, ranked []st.RankedOffer) {
 	if top > len(offers) {
 		top = len(offers)
 	}
-	out := jsonOut{Autoconsumption: auto, NumOfertas: len(offers), TopOfertas: offers[:top], Schemes: schemes}
+	if top > len(ranked) {
+		ranked = ranked[:len(ranked)]
+	} else {
+		ranked = ranked[:top]
+	}
+	out := jsonOut{Autoconsumption: auto, NumOfertas: len(offers), TopOfertas: offers[:top], Schemes: schemes, RankingNet: ranked}
 	enc := json.NewEncoder(os.Stdout)
 	enc.SetIndent("", "  ")
 	enc.Encode(out)
+}
+
+// printRanking muestra el ranking neto integrando la compensación de excedentes.
+func printRanking(ranked []st.RankedOffer, top int) {
+	if top > len(ranked) {
+		top = len(ranked)
+	}
+	fmt.Println("\n— Ranking NETO con excedentes reales (importe CNMC − compensación + cuota) —")
+	fmt.Println("  (compensación y cuota atribuidas por comercializadora; verifica precios en su web)")
+	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
+	fmt.Fprintf(w, "  %s\t%s\t%s\t%s\t%s\t%s\n", "€/año NETO", "Importe CNMC", "Compensado", "Cuota/año", "Comercializadora", "Excedentes")
+	for _, r := range ranked[:top] {
+		fmt.Fprintf(w, "  %s\t%s\t%s\t%s\t%s\t%s\n",
+			formatEUR(r.NetAnnualEUR), formatEUR(r.Offer.ImportePrimerAnio),
+			formatEUR(r.SurplusCreditEUR), formatEUR(r.AnnualFeeEUR),
+			truncar(r.Offer.Comercializadora, 26), truncar(r.SurplusTerms, 30))
+	}
+	w.Flush()
+}
+
+// reportSuspect avisa (por stderr) de las ofertas apartadas por no ser comparables:
+// su importePrimerAnio no escala con el consumo (p.ej. la "PVPC Histórico de referencia"
+// de la CNMC, calculada sobre un perfil de referencia). Se apartan para que no aparezcan
+// como la opción "más barata".
+func reportSuspect(suspect []st.Offer) {
+	if len(suspect) == 0 {
+		return
+	}
+	fmt.Fprintf(os.Stderr, "aviso: %d oferta(s) apartada(s) por importe no comparable (no escala con el consumo):\n", len(suspect))
+	for _, o := range suspect {
+		fmt.Fprintf(os.Stderr, "  · %.2f € — %s / %s\n", o.ImportePrimerAnio, o.Comercializadora, o.Oferta)
+	}
 }
 
 func formatEUR(v float64) string {

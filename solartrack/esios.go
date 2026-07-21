@@ -6,6 +6,7 @@ import (
 	"net/url"
 	"os"
 	"os/exec"
+	"strconv"
 	"time"
 )
 
@@ -62,16 +63,19 @@ func fetchIndicador(indicador, geo int, start, end time.Time, token string) (Hou
 	if hist {
 		q.Set("start_date", start.Format("2006-01-02T15:04"))
 		q.Set("end_date", end.Format("2006-01-02T15:04"))
+		// Con token filtramos la zona en el servidor (geo_ids[]). Es IMPRESCINDIBLE
+		// para el histórico: sin filtro, un año horario de TODAS las zonas es un payload
+		// enorme que el servidor corta (respuesta vacía / timeout). Con filtro son ~8760
+		// valores en pocos segundos. (En modo "último día" sin token NO se añade: e-sios
+		// devuelve 403 al filtrar por geo en algunos indicadores como el 1739.)
+		q.Set("geo_ids[]", strconv.Itoa(geo))
 	}
-	// NOTA: no añadimos geo_ids[] — e-sios devuelve 403 para algunos indicadores
-	// (1739) al filtrar por geo sin token. Obtenemos todas las zonas y filtramos
-	// client-side.
 	u.RawQuery = q.Encode()
 
 	// e-sios (detrás de un WAF) bloquea por fingerprint TLS el ClientHello de Go
 	// (http.Get devuelve 403) pero acepta curl. Para evitar dependencias Go (uTLS),
 	// delegamos la descarga a curl, presente en macOS/Linux/Windows 10+.
-	args := []string{"-sS", "--max-time", "30", "-H", "Accept: application/json",
+	args := []string{"-sS", "--max-time", "60", "-H", "Accept: application/json",
 		"-A", "solar-tariff-compare/0.1"}
 	if token != "" {
 		args = append(args, "-H", "x-api-key: "+token)

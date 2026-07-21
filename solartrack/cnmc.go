@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"sort"
 	"strconv"
 	"time"
 )
@@ -95,6 +96,55 @@ func FetchOffers(q Query) ([]Offer, error) {
 		return nil, fmt.Errorf("decodifica respuesta CNMC: %w", err)
 	}
 	return cr.ResultadoComparador, nil
+}
+
+// suspectImporteFactor: una oferta cuyo importePrimerAnio cae por debajo de este
+// múltiplo de la mediana se considera NO comparable. La CNMC incluye entradas
+// informativas/de referencia (p.ej. "PVPC Histórico de referencia", tipoElectricidad
+// "PVPC") cuyo importe se calcula sobre un perfil de referencia y NO escala con tu
+// consumo: con consumo alto quedan como valores absurdamente bajos y contaminarían el
+// "más barato". Las ofertas reales de 2.0TD están muy agrupadas (peajes y cargos son
+// regulados e idénticos), así que un importe por debajo de la mitad de la mediana es un
+// artefacto con casi total seguridad.
+const suspectImporteFactor = 0.5
+
+// PartitionSuspectOffers separa las ofertas comparables de las sospechosas de ser
+// artefactos de la CNMC (importe <= 0, o un importePrimerAnio anómalamente bajo respecto
+// a la mediana: no escala con el consumo). Conserva el orden de entrada en ambas listas.
+//
+// No filtra (devuelve todo como "clean") cuando hay pocas ofertas (<8, sin mediana
+// fiable) o cuando demasiadas (>25%) caerían como sospechosas (señal de que la heurística
+// no aplica a esta distribución). Así, con un consumo minúsculo —donde todas las ofertas
+// quedan cerca del suelo de costes fijos— no se marca nada.
+func PartitionSuspectOffers(offers []Offer) (clean, suspect []Offer) {
+	const minOffers = 8
+	if len(offers) < minOffers {
+		return offers, nil
+	}
+	imps := make([]float64, 0, len(offers))
+	for _, o := range offers {
+		if o.ImportePrimerAnio > 0 {
+			imps = append(imps, o.ImportePrimerAnio)
+		}
+	}
+	if len(imps) < minOffers {
+		return offers, nil
+	}
+	sort.Float64s(imps)
+	median := imps[len(imps)/2]
+	threshold := suspectImporteFactor * median
+	for _, o := range offers {
+		if o.ImportePrimerAnio <= 0 || o.ImportePrimerAnio < threshold {
+			suspect = append(suspect, o)
+		} else {
+			clean = append(clean, o)
+		}
+	}
+	// Si "demasiadas" resultan sospechosas, la heurística no aplica: no filtramos.
+	if len(suspect)*4 > len(offers) {
+		return offers, nil
+	}
+	return clean, suspect
 }
 
 func (q Query) validate() error {

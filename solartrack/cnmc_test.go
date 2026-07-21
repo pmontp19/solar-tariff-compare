@@ -60,6 +60,50 @@ func TestBuildParams_RequiredFields(t *testing.T) {
 	}
 }
 
+func TestPartitionSuspectOffers(t *testing.T) {
+	// Distribució realista: 10 ofertes agrupades ~1000 € i dues artefacte ~250 €
+	// (com la "PVPC Histórico de referencia" de la CNMC, que no escala amb el consum).
+	mk := func(imp float64, name string) Offer {
+		return Offer{ImportePrimerAnio: imp, Comercializadora: name, Oferta: "x"}
+	}
+	offers := []Offer{
+		mk(252.76, "PVPC Histórico"), // artefacte
+		mk(980, "A"), mk(1000, "B"), mk(1010, "C"), mk(1020, "D"), mk(1030, "E"),
+		mk(1040, "F"), mk(1050, "G"), mk(1060, "H"), mk(1070, "I"), mk(1080, "J"),
+		mk(260.49, "NOSA"), // artefacte
+	}
+	clean, suspect := PartitionSuspectOffers(offers)
+	if len(suspect) != 2 {
+		t.Fatalf("esperava 2 sospitoses, got %d (%v)", len(suspect), suspect)
+	}
+	if len(clean) != 10 {
+		t.Fatalf("esperava 10 netes, got %d", len(clean))
+	}
+	// Ordre d'entrada conservat i cap neta per sota del llindar (0.5 × mediana).
+	for _, o := range clean {
+		if o.ImportePrimerAnio < 500 {
+			t.Errorf("oferta neta massa baixa: %.2f", o.ImportePrimerAnio)
+		}
+	}
+
+	// Amb poques ofertes (<8) no filtra res.
+	few := offers[:5]
+	c2, s2 := PartitionSuspectOffers(few)
+	if len(s2) != 0 || len(c2) != len(few) {
+		t.Errorf("amb <8 ofertes no s'hauria de filtrar: clean=%d suspect=%d", len(c2), len(s2))
+	}
+
+	// Si massa (>25%) cauen com a sospitoses, no filtra (heurística no aplicable).
+	half := []Offer{
+		mk(100, "a"), mk(110, "b"), mk(120, "c"), mk(130, "d"),
+		mk(1000, "e"), mk(1010, "f"), mk(1020, "g"), mk(1030, "h"),
+	}
+	c3, s3 := PartitionSuspectOffers(half)
+	if len(s3) != 0 || len(c3) != len(half) {
+		t.Errorf("amb >25%% sospitoses no s'hauria de filtrar: clean=%d suspect=%d", len(c3), len(s3))
+	}
+}
+
 func TestQuery_Validate(t *testing.T) {
 	if err := (Query{}).validate(); err == nil {
 		t.Error("esperava error sense codi postal")

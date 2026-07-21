@@ -22,3 +22,6 @@ Thumbs.db
 # Local
 .env
 *.local
+
+# Handoff intern entre agents (perfils reals, no per publicar)
+HANDOFF.md
