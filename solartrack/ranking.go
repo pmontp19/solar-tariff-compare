@@ -92,9 +92,11 @@ var RetailerRegistry = map[string]SurplusTerms{
 	// ImportePrimerAnio/RankOffersWithSurplus) la cuota es 0; después pasa a ~2,1 €/mes,
 	// pero eso ya no afecta al año 1 y por eso no se penaliza aquí.
 	"gana energia": {Name: "Gana Energía Monedero Virtual (gratis 12 meses, luego ~2,1 €/mes)", Type: SchemeVirtualBattery, Price: 0.06, CeilingAnnual: true, MonthlyFee: 0},
-	// Som Energia: compensación simplificada cooperativa sin margen (precio de mercado en
-	// horas solares). PLACEHOLDER: €/kWh reciente no fijado con precisión.
-	"som energia": {Name: "Som Energia (compensación simplificada, sin margen)", Type: SchemeRegulated, CeilingAnnual: false},
+	// Som Energia: confirmat 0,03 €/kWh fix a la tarifa periodes 2.0TD (vàlid des de
+	// l'1 de maig de 2026, font: somenergia.coop). Compensació simplificada cooperativa
+	// sense marge; sostre mensual regulat. També ofereix Generation kWh (esquema
+	// diferent, no modelat aquí).
+	"som energia": {Name: "Som Energia (compensación simplificada, 0,03 €/kWh fijos)", Type: SchemeRegulated, Price: 0.03, CeilingAnnual: false},
 
 	// Plenitude y Eleia se OMITEN a propósito: sin cifras fiables por comercializadora a
 	// fecha de julio 2026. Caen en DefaultSurplusTerms en lugar de inventar un número.
