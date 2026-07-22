@@ -55,6 +55,27 @@ func TestParseDatadisReader_DateTimeMapping(t *testing.T) {
 	assertFloat(t, got24, 0.500, "24:00 -> hora 23 mateix dia")
 }
 
+// TestParseDatadisReader_CanviHoraOctubre: Datadis etiqueta "25:00" l'hora extra
+// del dia del canvi d'octubre (26/10/2025). S'ha d'acceptar (23:00 locals) i
+// rebutjar-la en dies normals.
+func TestParseDatadisReader_CanviHoraOctubre(t *testing.T) {
+	csv := "date,time,consumptionKWh\n" +
+		"2025/10/26,25:00,0.4\n" +
+		"2025/10/27,25:00,9.9\n" // dia normal -> descartada
+	info, err := ParseDatadisReader(strings.NewReader(csv), nil)
+	if err != nil {
+		t.Fatalf("ParseDatadisReader: %v", err)
+	}
+	if info.Rows != 1 {
+		t.Errorf("Rows esperat 1, got %d", info.Rows)
+	}
+	v, ok := findHour(info.Curve.Consumption, 2025, time.October, 26, 23)
+	if !ok {
+		t.Fatalf("no s'ha trobat l'entrada de 25:00 del dia del canvi")
+	}
+	assertFloat(t, v, 0.4, "25:00 -> 23:00 del dia de 25 hores")
+}
+
 // TestParseDatadisReader_DateFormats comprova que tant "YYYY/MM/DD" com
 // "YYYY-MM-DD" (normalitzat internament substituint - per /) es parsegen igual.
 func TestParseDatadisReader_DateFormats(t *testing.T) {

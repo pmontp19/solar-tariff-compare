@@ -28,8 +28,30 @@ const (
 
 // HourlySeries es una serie de precios horarios en €/kWh (ya convertidos desde €/MWh).
 type HourlySeries struct {
-	ByDay  map[string][24]float64 // clave "YYYY-MM-DD" -> 24 precios (€/kWh)
-	Source string                 // "token" (histórico) o "latest" (sólo último día, sin token)
+	ByDay map[string][24]float64 // clave "YYYY-MM-DD" -> 24 precios (€/kWh)
+	// Seen marca las horas con dato real. Imprescindible para distinguir "sin dato"
+	// de "precio 0": el precio de excedentes (1739) vale legítimamente 0 en muchas
+	// horas solares desde 2024, y tratar el 0 como ausencia lo sustituiría por el
+	// perfil medio, inflando la compensación justo donde hay excedente.
+	Seen   map[string][24]bool
+	Source string // "token" (histórico) o "latest" (sólo último día, sin token)
+}
+
+// PriceAt devuelve el precio de una hora y si existe dato real para ella.
+// Si la serie no tiene mapa Seen (p.ej. fixtures construidas a mano), cualquier
+// día presente en ByDay se considera completo.
+func (s HourlySeries) PriceAt(day string, hour int) (float64, bool) {
+	if hour < 0 || hour > 23 {
+		return 0, false
+	}
+	arr, ok := s.ByDay[day]
+	if !ok {
+		return 0, false
+	}
+	if s.Seen != nil {
+		return arr[hour], s.Seen[day][hour]
+	}
+	return arr[hour], true
 }
 
 // HourlyPrices contiene las dos series necesarias para simular la factura.
@@ -105,7 +127,7 @@ func fetchIndicador(indicador, geo int, start, end time.Time, token string) (Hou
 		return HourlySeries{}, fmt.Errorf("e-sios 403 para indicador %d (prueba con ESIOS_TOKEN)", indicador)
 	}
 
-	s := HourlySeries{ByDay: map[string][24]float64{}}
+	s := HourlySeries{ByDay: map[string][24]float64{}, Seen: map[string][24]bool{}}
 	if hist {
 		s.Source = "token"
 	} else {
@@ -133,6 +155,9 @@ func fetchIndicador(indicador, geo int, start, end time.Time, token string) (Hou
 		arr := s.ByDay[dia]
 		arr[hora] = v.Value / 1000.0 // €/MWh -> €/kWh
 		s.ByDay[dia] = arr
+		seen := s.Seen[dia]
+		seen[hora] = true
+		s.Seen[dia] = seen
 	}
 	if len(s.ByDay) == 0 {
 		return HourlySeries{}, fmt.Errorf("ningún valor para el indicador %d (geo %d)", indicador, geo)
@@ -142,16 +167,18 @@ func fetchIndicador(indicador, geo int, start, end time.Time, token string) (Hou
 
 // AverageHourlyProfile promedia una serie diaria en un perfil 24h medio (€/kWh por
 // hora del día). Útil cuando sólo se dispone de un día representativo o para
-// sintetizar un año.
+// sintetizar un año. Promedia las horas CON dato (incluidos ceros y negativos:
+// un precio 0 es un precio real, no una ausencia).
 func (s HourlySeries) AverageHourlyProfile() [24]float64 {
 	var suma [24]float64
 	var cuenta [24]int
-	for _, arr := range s.ByDay {
+	for dia, arr := range s.ByDay {
 		for h := 0; h < 24; h++ {
-			if arr[h] > 0 {
-				suma[h] += arr[h]
-				cuenta[h]++
+			if s.Seen != nil && !s.Seen[dia][h] {
+				continue
 			}
+			suma[h] += arr[h]
+			cuenta[h]++
 		}
 	}
 	var perfil [24]float64

@@ -160,11 +160,26 @@ func parseDateTime(fecha, hora string, loc *time.Location) (time.Time, bool) {
 		return time.Time{}, false
 	}
 	h, err := strconv.Atoi(strings.TrimSpace(hora))
-	if err != nil || h < 1 || h > 24 {
+	if err != nil {
 		return time.Time{}, false
 	}
-	// Hora 1..24 -> hora-inicio = Hora-1 (00..23)
-	return time.Date(dt.Year(), dt.Month(), dt.Day(), h-1, 0, 0, 0, loc), true
+	return hourStart(dt.Year(), dt.Month(), dt.Day(), h, loc)
+}
+
+// hourStart mapea la etiqueta Hora 1..24 (25 el día del cambio horario de octubre)
+// al instante de inicio del intervalo. Se construye sumando horas absolutas desde
+// la medianoche local: así la hora repetida del cambio de octubre produce dos
+// instantes distintos (time.Date con la hora local sería ambiguo) y el día de
+// marzo (23 horas) rechaza la etiqueta 24.
+func hourStart(y int, m time.Month, d, h int, loc *time.Location) (time.Time, bool) {
+	if h < 1 || h > 25 {
+		return time.Time{}, false
+	}
+	day := time.Date(y, m, d, 0, 0, 0, 0, loc)
+	if maxH := int(day.AddDate(0, 0, 1).Sub(day).Hours()); h > maxH {
+		return time.Time{}, false // etiqueta 25 fuera del día de 25 horas (o 24 en el de 23)
+	}
+	return day.Add(time.Duration(h-1) * time.Hour), true
 }
 
 // parseSpanishFloat convierte "0,168" -> 0.168. Devuelve 0, false si vacío/no válido.

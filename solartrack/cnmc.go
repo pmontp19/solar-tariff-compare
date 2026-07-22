@@ -8,6 +8,7 @@ import (
 	"net/url"
 	"sort"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -29,12 +30,16 @@ type ConsumptionSummary struct {
 // Query define los parámetros significativos de la consulta al comparador.
 // El resto de campos auxiliares (*Qr, *Orig, imp*, etc.) se rellenan internamente a 0.
 type Query struct {
-	PostalCode         string  // sin el 0 inicial (p.ej. "8001")
+	PostalCode         string  // código postal; el 0 inicial se elimina automáticamente ("08001" → "8001")
 	Power              float64 // kW contratados (2.0TD: potencia única para P1/P2/P3)
 	Consumption        ConsumptionSummary
 	SelfConsumption    bool    // true si hay autoconsumo FV
 	SelfConsumedEnergy float64 // kWh autoconsumidos (normalmente ya en Consumption.SelfConsumedKWh)
-	Holidays           HolidayCalendar
+	// SelfConsumptionPower: potencia FV INSTALADA en kWp (campo potenciaAutoconsumo
+	// del comparador). Si es 0 se usa Power como aproximación (comportamiento antiguo),
+	// pero la potencia contratada y la instalada no suelen coincidir: pásala si se conoce.
+	SelfConsumptionPower float64
+	Holidays             HolidayCalendar
 	// Período de facturación (por defecto: últimos 365 días hasta hoy).
 	Start time.Time
 	End   time.Time
@@ -182,7 +187,9 @@ func buildParams(q Query) url.Values {
 	}
 
 	p.Set("tipoSuministro", "E")
-	p.Set("codigoPostal", q.PostalCode)
+	// El API espera el CP sin el 0 inicial ("08001" → "8001"); normalizamos aquí
+	// para que el llamante pueda pasar el CP tal como lo escribe el usuario.
+	p.Set("codigoPostal", strings.TrimLeft(q.PostalCode, "0"))
 	p.Set("tarifa", "4") // 4 = peaje 2.0TD
 
 	// Potencias (igual para P1/P2/P3 en 2.0TD)
@@ -224,7 +231,13 @@ func buildParams(q Query) url.Values {
 		ea = q.Consumption.SelfConsumedKWh
 	}
 	setF("energiaAutoconsumo", ea)
-	setPot("potenciaAutoconsumo", q.Power)
+	// potenciaAutoconsumo = potencia FV instalada (kWp), no la contratada. Si no se
+	// conoce (p.ej. sólo Datadis, sin -kwp) se aproxima con la contratada.
+	pa := q.SelfConsumptionPower
+	if pa <= 0 {
+		pa = q.Power
+	}
+	setPot("potenciaAutoconsumo", pa)
 	p.Set("autoconsumo", strconv.FormatBool(q.SelfConsumption))
 
 	// Filtros por defecto (sin filtro restrictivo): 2 = "Indiferente/No"

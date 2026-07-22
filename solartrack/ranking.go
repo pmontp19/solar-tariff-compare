@@ -108,14 +108,55 @@ var DefaultSurplusTerms = SurplusTerms{
 	Name: "Compensación simplificada (regulada)", Type: SchemeRegulated, CeilingAnnual: false,
 }
 
+// foldDiacritics normaliza vocales acentuadas, ñ y ç a ASCII. La CNMC devuelve
+// nombres con acentos ("Gana Energía") y las claves del registro van sin ellos;
+// sin plegado, el lookup fallaría en silencio y la oferta caería en el default.
+func foldDiacritics(s string) string {
+	var b strings.Builder
+	b.Grow(len(s))
+	for _, r := range s {
+		switch r {
+		case 'á', 'à', 'ä', 'â', 'ã':
+			b.WriteRune('a')
+		case 'é', 'è', 'ë', 'ê':
+			b.WriteRune('e')
+		case 'í', 'ì', 'ï', 'î':
+			b.WriteRune('i')
+		case 'ó', 'ò', 'ö', 'ô', 'õ':
+			b.WriteRune('o')
+		case 'ú', 'ù', 'ü', 'û':
+			b.WriteRune('u')
+		case 'ñ':
+			b.WriteRune('n')
+		case 'ç':
+			b.WriteRune('c')
+		default:
+			b.WriteRune(r)
+		}
+	}
+	return b.String()
+}
+
 // LookupSurplusTerms busca los términos de excedentes de una oferta por el nombre de
-// la comercializadora (subcadena, insensible a mayúsculas). Devuelve DefaultSurplusTerms
-// si no hay coincidencia.
+// la comercializadora (subcadena, insensible a mayúsculas y acentos). Devuelve
+// DefaultSurplusTerms si no hay coincidencia. Las claves se prueban en orden
+// determinista (más larga primero) para que un nombre que casara con dos entradas
+// no dependa del orden aleatorio de iteración del map.
 func LookupSurplusTerms(comercializadora, oferta string) SurplusTerms {
-	name := strings.ToLower(comercializadora + " " + oferta)
-	for key, terms := range RetailerRegistry {
+	name := foldDiacritics(strings.ToLower(comercializadora + " " + oferta))
+	keys := make([]string, 0, len(RetailerRegistry))
+	for key := range RetailerRegistry {
+		keys = append(keys, key)
+	}
+	sort.Slice(keys, func(i, j int) bool {
+		if len(keys[i]) != len(keys[j]) {
+			return len(keys[i]) > len(keys[j])
+		}
+		return keys[i] < keys[j]
+	})
+	for _, key := range keys {
 		if strings.Contains(name, key) {
-			return terms
+			return RetailerRegistry[key]
 		}
 	}
 	return DefaultSurplusTerms
@@ -178,15 +219,22 @@ func surplusCredit(gridImport, surplus map[time.Time]float64, prices *HourlyPric
 		tm := t.In(madrid)
 		dia := tm.Format("2006-01-02")
 		hour := tm.Hour()
-		pvpcH := prices.PVPC.ByDay[dia][hour]
-		if pvpcH == 0 {
+		// El perfil medio sólo sustituye horas SIN dato; un precio 0 es real
+		// (frecuente en el indicador de excedentes al mediodía) y debe respetarse.
+		pvpcH, ok := prices.PVPC.PriceAt(dia, hour)
+		if !ok {
 			pvpcH = pvpcProfile[hour]
 		}
-		excH := prices.Surplus.ByDay[dia][hour]
-		if excH == 0 {
+		excH, ok := prices.Surplus.PriceAt(dia, hour)
+		if !ok {
 			excH = excProfile[hour]
 		}
 		rate := surplusRate(terms, pvpcH, excH)
+		if rate < 0 {
+			// Ninguna comercializadora cobra por verter (la compensación se limita
+			// a 0 aunque el precio horario de referencia sea negativo).
+			rate = 0
+		}
 
 		mk := tm.Format("2006-01")
 		m := get(mk)

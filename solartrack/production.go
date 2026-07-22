@@ -145,8 +145,9 @@ func daysInMonth(m int) int {
 
 // parsePVGISTime interpreta "YYYYMMDD:HHMM" -> (mes 0-11, hora 0-23).
 func parsePVGISTime(s string) (mes, hora int, ok bool) {
-	// Formato: 20210101:0010  (año,mes,día : hora,min)
-	if len(s) < 11 {
+	// Formato: 20210101:0010  (año,mes,día : hora,min) — 13 caracteres mínimo;
+	// el slice s[9:13] de más abajo entraría en pánico con cadenas más cortas.
+	if len(s) < 13 {
 		return 0, 0, false
 	}
 	m, err1 := strconv.Atoi(s[4:6])

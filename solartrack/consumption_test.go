@@ -33,6 +33,49 @@ func TestParseCCH_RealFile(t *testing.T) {
 		info.Holes, info.EstimatedPct)
 }
 
+// El dia del canvi horari d'octubre té 25 hores i la CCH les etiqueta 1..25.
+// Cal acceptar l'hora 25 (abans es descartava, perdent 1 kWh/any) i rebutjar-la
+// en dies normals. El 26/10/2025 és el canvi d'hora (diumenge, 25 hores).
+func TestParseCCH_CanviHoraOctubre(t *testing.T) {
+	csv := "CUPS;Fecha;Hora;AE_kWh;REAL/ESTIMADO\n" +
+		"CUPS1;26/10/2025;1;0,1;R\n" +
+		"CUPS1;26/10/2025;24;0,2;R\n" +
+		"CUPS1;26/10/2025;25;0,4;R\n" + // hora extra del dia de 25 hores
+		"CUPS1;27/10/2025;25;9,9;R\n" // dia normal: hora 25 invàlida -> descartada
+	info, err := ParseCCHReader(strings.NewReader(csv), nil)
+	if err != nil {
+		t.Fatalf("ParseCCHReader: %v", err)
+	}
+	if info.Rows != 3 {
+		t.Errorf("Rows esperat 3 (l'hora 25 d'un dia normal es descarta), got %d", info.Rows)
+	}
+	// L'etiqueta 25 del dia de 25 hores comença a les 23:00 locals.
+	v, ok := findHour(info.Curve.Consumption, 2025, 10, 26, 23)
+	if !ok {
+		t.Fatalf("no s'ha trobat l'hora 25 del dia del canvi (hauria de ser les 23:00)")
+	}
+	assertFloat(t, v, 0.4, "hora 25 del dia de 25 hores")
+	// Les etiquetes 24 i 25 han de ser instants DIFERENTS (24 -> 22:00, 25 -> 23:00).
+	if v24, ok := findHour(info.Curve.Consumption, 2025, 10, 26, 22); !ok || v24 != 0.2 {
+		t.Errorf("hora 24 del dia de 25 hores esperada a les 22:00 amb 0.2, got %.2f (ok=%v)", v24, ok)
+	}
+}
+
+// El dia del canvi de març té 23 hores: l'etiqueta 24 no existeix i s'ha de
+// descartar. El 30/03/2025 és el canvi d'hora de primavera.
+func TestParseCCH_CanviHoraMarc(t *testing.T) {
+	csv := "CUPS;Fecha;Hora;AE_kWh;REAL/ESTIMADO\n" +
+		"CUPS1;30/03/2025;23;0,3;R\n" + // última hora vàlida del dia de 23 hores
+		"CUPS1;30/03/2025;24;9,9;R\n" // etiqueta inexistent -> descartada
+	info, err := ParseCCHReader(strings.NewReader(csv), nil)
+	if err != nil {
+		t.Fatalf("ParseCCHReader: %v", err)
+	}
+	if info.Rows != 1 {
+		t.Errorf("Rows esperat 1 (l'etiqueta 24 d'un dia de 23 hores es descarta), got %d", info.Rows)
+	}
+}
+
 func TestParseCCH_FakeData(t *testing.T) {
 	// Dades sintètiques: 1 dia feiner amb hores conegudes
 	csv := "CUPS;Fecha;Hora;AE_kWh;REAL/ESTIMADO\n" +

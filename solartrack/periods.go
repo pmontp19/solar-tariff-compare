@@ -66,24 +66,27 @@ func dateKey(year int, m time.Month, day int) time.Time {
 	return time.Date(year, m, day, 12, 0, 0, 0, time.UTC)
 }
 
-// SpanishHolidays devuelve los festivos nacionales españoles (península/Baleares)
-// de un año: fijos + Viernes Santo (calculado a partir de Pascua).
-// Se pueden añadir festivos autonómicos/locales pasándolos en su propia HolidayCalendar.
+// SpanishHolidays devuelve los festivos que cuentan para los períodos de la 2.0TD:
+// los nacionales NO SUSTITUIBLES (Circular 3/2020 de la CNMC; la lista de no
+// sustituibles viene del art. 45 del RD 2001/1983). Ojo: Reyes (6 de enero) es
+// sustituible y por tanto NO cuenta como valle; la Asunción (15 de agosto) sí.
+// Se pueden añadir festivos autonómicos/locales pasándolos en su propia
+// HolidayCalendar, pero para la tarifa sólo aplican los nacionales.
 func SpanishHolidays(year int) map[time.Time]bool {
 	out := make(map[time.Time]bool)
 	add := func(m time.Month, d int) {
 		out[dateKey(year, m, d)] = true
 	}
-	// Festivos fijos nacionales
+	// Festivos nacionales no sustituibles de fecha fija
 	add(time.January, 1)   // Año Nuevo
-	add(time.January, 6)   // Reyes
 	add(time.May, 1)       // Día del Trabajador
+	add(time.August, 15)   // Asunción de la Virgen
 	add(time.October, 12)  // Fiesta Nacional de España
 	add(time.November, 1)  // Todos los Santos
 	add(time.December, 6)  // Día de la Constitución
 	add(time.December, 8)  // Inmaculada Concepción
 	add(time.December, 25) // Navidad
-	// Viernes Santo: viernes anterior al domingo de Pascua
+	// Viernes Santo (no sustituible, fecha móvil): viernes anterior a Pascua
 	easter := easterSunday(year)
 	viernesSanto := easter.AddDate(0, 0, -2)
 	out[dateKey(year, viernesSanto.Month(), viernesSanto.Day())] = true

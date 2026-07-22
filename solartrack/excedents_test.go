@@ -94,6 +94,32 @@ func TestSimula_BateriaVirtual_PotNegatiuLimitZero(t *testing.T) {
 	}
 }
 
+// El mateix invariant de preu 0 real, però a la simulació d'esquemes: l'hora amb
+// preu d'excedents 0 (marcada com a vista) no s'ha de substituir pel perfil mitjà.
+func TestSimula_PreuZeroRealEsRespecta(t *testing.T) {
+	seen := [24]bool{}
+	for i := range seen {
+		seen[i] = true
+	}
+	excArr := fill24(0.10)
+	excArr[12] = 0.0 // migdia amb preu 0 real (habitual des del 2024)
+	preus := &HourlyPrices{
+		PVPC: HourlySeries{
+			ByDay: map[string][24]float64{"2025-06-01": fill24(0.15)},
+			Seen:  map[string][24]bool{"2025-06-01": seen}, Source: "test",
+		},
+		Surplus: HourlySeries{
+			ByDay: map[string][24]float64{"2025-06-01": excArr},
+			Seen:  map[string][24]bool{"2025-06-01": seen}, Source: "test",
+		},
+	}
+	consum := map[time.Time]float64{mkHour(1, 0): 1.0}
+	prod := map[time.Time]float64{mkHour(1, 12): 10.0} // tot l'excedent a l'hora de preu 0
+	r := SimulateSurplus(consum, prod, preus, Scheme{Name: "regulada", Type: SchemeRegulated})
+	assertFloat(t, r.GrossCompensation, 0.0, "compensació bruta amb preu 0 real")
+	assertFloat(t, r.UsedCompensation, 0.0, "compensació usada amb preu 0 real")
+}
+
 func fill24(v float64) [24]float64 {
 	var a [24]float64
 	for i := range a {

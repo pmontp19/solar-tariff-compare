@@ -73,7 +73,7 @@ a tope a la factura completa. Confiança: A=alta, M=mitjana, B=baixa.
 | Endesa (Solar Plus + BV) | bateria virtual | 0,06 | factura | — | **2 €/mes** | [endesa.com](https://www.endesa.com/es/luz-y-gas/catalogo-solar/endesa-solar-plus-bateria-virtual) | M-A |
 | Iberdrola (Solar Cloud) | bateria virtual | 0,06 | factura (~1.000 kWh/mes) | **24 mesos** | gratis | tarifasgasluz | M |
 | Gana Energía (Monedero) | monedero € | 0,06 | factura | sense (es paga si marxes) | gratis 12m, després ~2,1 €/mes | [ganaenergia.com](https://ganaenergia.com/blog/compensacion-excedentes-gana-energia/) | M-A |
-| Som Energia | simplificada cooperativa (sense marge) | ~preu mercat h. solars | mensual | — | — | [somenergia.coop](https://www.somenergia.coop/) | M (placeholder) |
+| Som Energia | simplificada cooperativa (sense marge) | 0,03 fix (2.0TD, des de l'1 de maig 2026) | mensual | — | — | [somenergia.coop](https://www.somenergia.coop/) | M |
 
 **Correccions clau vs. el registre inicial:**
 - **Octopus**: era 0,03 €/kWh amb tope → **incorrecte**. És un monedero en euros sense caducitat que
@@ -85,8 +85,24 @@ a tope a la factura completa. Confiança: A=alta, M=mitjana, B=baixa.
 - **Naturgy**: 0,06 €/kWh confirmat, però només és wallet amb l'add-on opt-in (caduca a 5 anys).
 - **Plenitude i Eleia**: sense xifres fiables per comercialitzadora → cauen en `DefaultSurplusTerms`.
 
-**El que el model encara NO captura** (mesura futura → esquema "monedero €" propi, pas 5 del HANDOFF):
-quotes mensuals (Repsol 1,99 €, Endesa 2 €, Gana ~2,1 € després del 1r any), caducitat del saldo
-(Naturgy 5 anys, Iberdrola 24 mesos) i topes tipus el 40% de Repsol. Per a perfils amb molta
-exportació aquests factors poden capgirar el rànquing i cal afegir camps `MonthlyFee`, `ExpiryMonths`
-i un hook de tope.
+**Ja capturat al model** (camps de `SurplusTerms` a `ranking.go`):
+- `MonthlyFee`: quotes mensuals (Repsol 1,99 €, Endesa 2 €). Se sumen a `AnnualFeeEUR` i
+  `NetAnnualEUR` a `RankOffersWithSurplus`. Gana Energia és gratis el 1r any → `MonthlyFee=0`
+  per al número de PRIMER any.
+- `ExpiryMonths`: caducitat del saldo (Naturgy 60, Iberdrola 24). Metadata informativa: una
+  caducitat >= 12 mesos no retalla res dins del primer any, així que NO altera `NetAnnualEUR`.
+- `ThrottleFraction`: tope tipus Repsol (40% del consum anual). S'aplica a `surplusCredit`
+  abans del sostre habitual.
+
+**Correccions posteriors del model** (2026-07, aquesta revisió):
+- **Preu d'excedents 0**: el 1739 val legítimament 0 en moltes hores solars des del 2024.
+  Abans es tractava com "sense dada" i es substituïa pel perfil mitjà, inflant la compensació
+  de regulada/indexada. Ara `HourlySeries.Seen` distingeix "sense dada" de "preu 0".
+- **Festius de la tarifa**: només compten els nacionals NO substituïbles (Circular 3/2020).
+  S'ha tret Reis (substituïble) i afegit l'Assumpció (15 d'agost).
+- **`potenciaAutoconsumo`**: ara és la kWp instal·lada (`-kwp`), no la potència contractada.
+
+**El que encara NO captura** (mesura futura): un `SchemeType` propi de "monedero en euros"
+(ara els wallets s'aproximen amb `SchemeVirtualBattery + CeilingAnnual`), la segona potència
+de la 2.0TD, i un registre carregable per fitxer (`-registry`) per actualitzar preus sense
+recompilar.

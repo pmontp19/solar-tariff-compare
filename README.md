@@ -2,7 +2,10 @@
 
 CLI en Go (binario único, agent-first) que compara ofertas de electricidad usando tu **curva de consumo horaria real** (CCH de e-distribución o CSV de Datadis) contra el API pública del **Comparador de la CNMC**, y modela la **producción FV** (PVGIS o CSV real) y los **excedentes** (e-sios) para simular esquemas de compensación (regulada, indexada, **batería virtual**) y producir un **ranking neto** por comercializadora.
 
-Diseñada para que un agente (opencode, Claude Code, Cursor) pueda conducirla: ver [`AGENTS.md`](AGENTS.md).
+Diseñada para que un agente (opencode, Claude Code, Cursor) pueda conducirla: la skill
+[`.claude/skills/solar-tariff-compare`](.claude/skills/solar-tariff-compare/SKILL.md)
+guía el flujo completo (recopilar datos del usuario → ejecutar → interpretar);
+[`AGENTS.md`](AGENTS.md) es la guía de desarrollo del proyecto.
 
 A diferencia del comparador web de la CNMC, esta herramienta:
 
@@ -60,15 +63,21 @@ solar-tariff-compare -consum consumo.csv -prod produccion.csv -cp 8001 -sim
 solar-tariff-compare -consum curva.csv -cp 8001 -kwp 4.1 -json > resultado.json
 ```
 
+El JSON (`schema_version: 2`) incluye todo lo que un agente necesita sin leer stderr:
+`consumption_summary` (kWh anuales y por período, filas, huecos, % estimado, rango de
+fechas, excedentes reales), `top_offers`, `suspect_offers` (ofertas apartadas por
+importe no comparable), `price_source` (si los precios e-sios son histórico `token` o
+un día representativo `latest`), `surplus_schemes` (con `-sim`) y `ranking_net`.
+
 ## Flags
 
 | Flag | Por defecto | Descripción |
 |---|---|---|
-| `-consum` | — | CSV de la curva horaria (CCH e-distribución). **Obligatorio** |
-| `-cp` | — | Código postal sin el 0 inicial (`08001` → `8001`). **Obligatorio** |
+| `-consum` | — | CSV de la curva horaria (CCH e-distribución o Datadis). **Obligatorio** |
+| `-cp` | — | Código postal (acepta `08001` y `8001`). **Obligatorio** |
 | `-potencia` | `3.45` | Potencia contratada en kW (2.0TD) |
 | `-top` | `20` | Número de ofertas a mostrar |
-| `-kwp` | `0` | Potencia FV de pico en kW. Si >0 activa PVGIS |
+| `-kwp` | `0` | Potencia FV instalada (pico) en kW. Si >0 activa PVGIS y se envía como `potenciaAutoconsumo` a la CNMC. Si la curva ya trae excedentes reales, PVGIS se omite (los datos reales mandan) y `-kwp` sólo informa la potencia instalada |
 | `-prod` | — | CSV de producción real (7 columnas con `AS_KWh`/`AE_AUTOCONS_kWh`). Sustituye a PVGIS |
 | `-lat`, `-lon` | `41.38`, `2.17` | Coordenadas para PVGIS |
 | `-angle` | `35` | Inclinación de los paneles (grados) |
@@ -89,9 +98,13 @@ y simula la factura de energía hora a hora para tres esquemas:
 
 | Esquema | Precio excedentes | Techo | Ejemplo |
 |---|---|---|---|
-| **Regulada** | precio excedentes (1739) | mensual | compensación simplificada por defecto |
-| **Indexada** | precio excedentes × (1+coef) + prima | mensual | Octopus, Som |
-| **Batería virtual** | **precio de consumo** (PVPC) | **anual** (lleva saldo) | Holaluz Sun, Repsol, Núcleo |
+| **Regulada** | precio excedentes (1739) | mensual | compensación simplificada por defecto; Som Energia (0,03 €/kWh fijo) |
+| **Indexada** | precio excedentes × (1+coef) + prima, o fijo pactado | mensual | TotalEnergies (0,07), Nabalia (0,095) |
+| **Batería virtual / wallet** | **precio de consumo** (PVPC) o fijo, con saldo | **anual** (lleva saldo) | Holaluz Cloud, Naturgy, Repsol Vivit, Octopus Solar Wallet |
+
+Los precios horarios con valor **0 son reales** (el indicador 1739 vale 0 en muchas
+horas solares desde 2024) y se respetan; el perfil medio sólo sustituye horas sin dato.
+Un precio negativo nunca genera compensación negativa (se recorta a 0).
 
 **Salida**: término de energía neto anual por esquema (`net_energy_eur`), compensación usada y perdida (por la regla no-negativo). Sin términos fijos (comunes a todas las ofertas).
 
@@ -128,7 +141,7 @@ ES0031400000000000TF0F;15/01/2025;2;0,182;R
 ```
 
 - `Fecha` en formato `DD/MM/YYYY`
-- `Hora` de `1` a `24` (1 = intervalo 00:00–01:00)
+- `Hora` de `1` a `24` (1 = intervalo 00:00–01:00); el día del cambio horario de octubre llega a `25`
 - `AE_kWh` con coma decimal española (`0,168`)
 
 También acepta la variante de 7 columnas con excedentes (`AS_KWh`) y autoconsumo (`AE_AUTOCONS_kWh`), que aparecen una vez tienes placas.
@@ -144,13 +157,13 @@ ES0031000000000000XX0X,2025/07/01,12:00,0.011,Real,2.092,,
 ...
 ```
 
-- `date` = `YYYY/MM/DD`; `time` = `01:00`..`24:00` (hora al final del intervalo).
+- `date` = `YYYY/MM/DD`; `time` = `01:00`..`24:00` (hora al final del intervalo; `25:00` el día del cambio horario de octubre).
 - `consumptionKWh` ya es **neto de red** y `surplusEnergyKWh` son los excedentes reales. Con Datadis, `energiaAutoconsumo=0` en la consulta CNMC (la factura ya es neta).
 - Las columnas `generationEnergyKWh` y `selfConsumptionEnergyKWh` suelen venir vacías (Datadis no las publica).
 
 ## Cómo funciona
 
-1. **Parsea** la curva horaria (auto-detecta Datadis vs CCH) y clasifica cada hora en P1 (Punta), P2 (Llano) o P3 (Valle) según el [RD 1484/2021](https://www.boe.es/), incluyendo festivos nacionales (Año Nuevo, Reyes, Viernes Santo calculado por Pascua, 1 de mayo, 12 de octubre, Todos los Santos, Constitución, Inmaculada, Navidad).
+1. **Parsea** la curva horaria (auto-detecta Datadis vs CCH) y clasifica cada hora en P1 (Punta), P2 (Llano) o P3 (Valle) según la Circular 3/2020 de la CNMC, contando los festivos nacionales **no sustituibles** (Año Nuevo, Viernes Santo calculado por Pascua, 1 de mayo, Asunción, 12 de octubre, Todos los Santos, Constitución, Inmaculada, Navidad — Reyes es sustituible y no cuenta).
 2. **Si hay FV**, descarga la serie horaria de PVGIS y calcula, hora a hora, el autoconsumo `min(producción, consumo)` y los excedentes.
 3. **Consulta el API pública de la CNMC** (`/api/publico/ofertas/electricidad`) con el consumo agregado y el autoconsumo. Aparta las ofertas "artefacto" de la CNMC (p. ej. "PVPC Histórico de referencia") cuyo importe no escala con el consumo vía `PartitionSuspectOffers`.
 4. **Ordena** las ofertas por importe del primer año.
@@ -162,9 +175,13 @@ Véase [`docs/CNMC-API.md`](docs/CNMC-API.md) para el reverse engineering del AP
 ## Desarrollo
 
 ```bash
-go test ./...                      # tests (saltando los de integración)
-SOLARTRACK_SKIP_LIVE= go test ./...  # tests de integración (llamada real a CNMC + PVGIS)
+go test ./... -skip _Live               # tests rápidos (sin red)
+SOLARTRACK_SKIP_LIVE=1 go test ./...    # equivalente, vía variable de entorno
+go test ./...                           # TODOS, incluidos integración (red: CNMC + PVGIS + e-sios)
 ```
+
+Ojo: los tests de integración (`*_Live`) se ejecutan **por defecto**; hay que
+saltarlos explícitamente con una de las dos primeras formas.
 
 ## Licencia
 

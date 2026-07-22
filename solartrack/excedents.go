@@ -25,25 +25,25 @@ const (
 	// SchemeRegulated: compensación simplificada por defecto al precio de excedentes
 	// regulado (1739).
 	SchemeRegulated SchemeType = iota
-	// SchemeIndexed: excedentes al precio de excedentes horario × (1+coef) + prima
-	// (p.ej. Octopus, Som).
+	// SchemeIndexed: excedentes al precio de excedentes horario × (1+coef) + prima,
+	// o a precio fijo pactado (p.ej. TotalEnergies 0,07 €/kWh, Nabalia 0,095 €/kWh).
 	SchemeIndexed
-	// SchemeVirtualBattery: excedentes valorados al precio de CONSUMO horario (p.ej.
-	// Holaluz Sun). Más favorable con perfil FV grande porque valora los excedentes al
-	// precio que pagas.
+	// SchemeVirtualBattery: excedentes valorados al precio de CONSUMO horario o a
+	// precio fijo, con saldo que arrastra entre meses (p.ej. Holaluz Cloud, Naturgy,
+	// Repsol Vivit, Octopus Solar Wallet). Más favorable con perfil FV grande porque
+	// valora los excedentes al precio que pagas y no pierde el sobrante mensual.
 	SchemeVirtualBattery
 )
 
-// SchemesRegistry es un conjunto de esquemas conocidos de comercializadoras españolas.
-// Las condiciones cambian; esto es un punto de partida editable. El precio de
-// consumo real de cada comercializadora no se modela aquí (haría falta su tarifa);
-// el simulador usa el PVPC horario como referencia común para aislar el efecto del
-// esquema de excedentes.
+// SchemesRegistry son los tres esquemas GENÉRICOS que compara la simulación (-sim).
+// Son arquetipos, no ofertas concretas: los términos reales de cada comercializadora
+// (precio, cuota, tope) viven en RetailerRegistry (ranking.go) y alimentan el ranking
+// neto. El precio de consumo real de cada oferta no se modela aquí; el simulador usa
+// el PVPC horario como referencia común para aislar el efecto del esquema.
 var SchemesRegistry = []Scheme{
-	{Name: "PVPC regulada (compensación simplificada por defecto)", Type: SchemeRegulated},
-	{Name: "Octopus / Som (indexada: excedentes al precio de excedentes)", Type: SchemeIndexed},
-	{Name: "Holaluz Sun (batería virtual: excedentes al precio de consumo)", Type: SchemeVirtualBattery},
-	{Name: "Repsol / Núcleo (batería virtual variante)", Type: SchemeVirtualBattery, Coefficient: -0.0, Premium: 0},
+	{Name: "Compensación simplificada regulada (excedentes al precio horario 1739)", Type: SchemeRegulated},
+	{Name: "Indexada sobre precio de excedentes (coef/prima según oferta)", Type: SchemeIndexed},
+	{Name: "Batería virtual / wallet (excedentes al precio de consumo; Holaluz, Naturgy, Repsol, Octopus...)", Type: SchemeVirtualBattery},
 }
 
 // SchemeResult es la factura simulada para un esquema.
@@ -123,12 +123,14 @@ func SimulateSurplus(consumption, production map[time.Time]float64, prices *Hour
 			surplus = 0
 		}
 		dia := tm.Format("2006-01-02")
-		pvpcH := prices.PVPC.ByDay[dia][tm.Hour()]
-		if pvpcH == 0 {
+		// El perfil medio sólo sustituye horas SIN dato; un precio 0 es real
+		// (frecuente en el indicador de excedentes al mediodía) y debe respetarse.
+		pvpcH, ok := prices.PVPC.PriceAt(dia, tm.Hour())
+		if !ok {
 			pvpcH = consumProfile[tm.Hour()]
 		}
-		excH := prices.Surplus.ByDay[dia][tm.Hour()]
-		if excH == 0 {
+		excH, ok := prices.Surplus.PriceAt(dia, tm.Hour())
+		if !ok {
 			excH = excProfile[tm.Hour()]
 		}
 
@@ -144,6 +146,10 @@ func SimulateSurplus(consumption, production map[time.Time]float64, prices *Hour
 			} else {
 				compRate = pvpcH
 			}
+		}
+		if compRate < 0 {
+			// Nadie cobra por verter: con precio horario negativo la compensación es 0.
+			compRate = 0
 		}
 
 		mk := tm.Format("2006-01")

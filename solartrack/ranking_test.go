@@ -29,6 +29,10 @@ func TestLookupSurplusTerms(t *testing.T) {
 		{"el text de l'oferta també compta", "Acme Corp", "Naturgy Solar Plan", RetailerRegistry["naturgy"].Name, SchemeVirtualBattery},
 		// "EDP" no és al registre → cau en DefaultSurplusTerms (regulada).
 		{"sense coincidència: sostre per defecte", "EDP", "One Luz", DefaultSurplusTerms.Name, SchemeRegulated},
+		// La CNMC retorna noms amb accents; les claus del registre van sense.
+		// Sense plegat de diacrítics, "Gana Energía" cauria al default en silenci.
+		{"accents plegats (Energía)", "GANA ENERGÍA S.L.", "Monedero Solar", RetailerRegistry["gana energia"].Name, SchemeVirtualBattery},
+		{"accents plegats (Som)", "SOM ENERGÍA, SCCL", "Tarifa 2.0TD", RetailerRegistry["som energia"].Name, SchemeRegulated},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -97,6 +101,66 @@ func TestSurplusRate(t *testing.T) {
 			assertFloat(t, got, tc.want, tc.name)
 		})
 	}
+}
+
+// -------------------- surplusCredit: preu 0 i preu negatiu --------------------
+
+// Un preu d'excedents 0 amb dada REAL (Seen marcat) s'ha de respectar, no
+// substituir pel perfil mitjà: des del 2024 el 1739 val sovint 0 al migdia,
+// exactament on hi ha l'excedent. Substituir-lo inflava la compensació.
+func TestSurplusCredit_PreuZeroRealEsRespecta(t *testing.T) {
+	seen := [24]bool{}
+	for i := range seen {
+		seen[i] = true
+	}
+	// Excedents: 0.10 tot el dia EXCEPTE les 12h, que val 0 (amb dada real).
+	excArr := fill24(0.10)
+	excArr[12] = 0.0
+	prices := &HourlyPrices{
+		PVPC: HourlySeries{
+			ByDay: map[string][24]float64{"2025-06-01": fill24(0.20)},
+			Seen:  map[string][24]bool{"2025-06-01": seen}, Source: "test",
+		},
+		Surplus: HourlySeries{
+			ByDay: map[string][24]float64{"2025-06-01": excArr},
+			Seen:  map[string][24]bool{"2025-06-01": seen}, Source: "test",
+		},
+	}
+	gridImport := map[time.Time]float64{mkHour(1, 0): 100.0}            // sostre mensual alt (20€)
+	surplus := map[time.Time]float64{mkHour(1, 12): 10.0}               // tot l'excedent a l'hora de preu 0
+	terms := SurplusTerms{Name: "test-regulada", Type: SchemeRegulated} // rate = excH
+
+	got := surplusCredit(gridImport, surplus, prices, terms, 0)
+	assertFloat(t, got, 0.0, "preu 0 real -> compensació 0 (no perfil mitjà)")
+}
+
+// Un preu horari negatiu no pot generar compensació negativa (ningú cobra per
+// abocar): la tarifa es retalla a 0.
+func TestSurplusCredit_PreuNegatiuEsRetallaAZero(t *testing.T) {
+	seen := [24]bool{}
+	for i := range seen {
+		seen[i] = true
+	}
+	excArr := fill24(-0.05) // preu negatiu tot el dia
+	prices := &HourlyPrices{
+		PVPC: HourlySeries{
+			ByDay: map[string][24]float64{"2025-06-01": fill24(0.20)},
+			Seen:  map[string][24]bool{"2025-06-01": seen}, Source: "test",
+		},
+		Surplus: HourlySeries{
+			ByDay: map[string][24]float64{"2025-06-01": excArr},
+			Seen:  map[string][24]bool{"2025-06-01": seen}, Source: "test",
+		},
+	}
+	gridImport := map[time.Time]float64{mkHour(1, 0): 10.0}
+	surplus := map[time.Time]float64{mkHour(1, 12): 10.0}
+	terms := SurplusTerms{Name: "test-regulada", Type: SchemeRegulated}
+
+	got := surplusCredit(gridImport, surplus, prices, terms, 0)
+	if got < 0 {
+		t.Fatalf("la compensació no pot ser negativa: %.4f", got)
+	}
+	assertFloat(t, got, 0.0, "preu negatiu -> compensació 0")
 }
 
 // -------------------- surplusCredit: sostre mensual --------------------

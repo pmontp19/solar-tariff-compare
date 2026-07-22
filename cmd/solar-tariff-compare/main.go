@@ -27,7 +27,7 @@ import (
 func main() {
 	var (
 		consumPath = flag.String("consum", "", "fichero CSV de la curva horaria (CCH e-distribución) [obligatorio]")
-		cp         = flag.String("cp", "", "código postal sin el 0 inicial (p.ej. 08001 → 8001) [obligatorio]")
+		cp         = flag.String("cp", "", "código postal (acepta 08001 o 8001) [obligatorio]")
 		potencia   = flag.Float64("potencia", 3.45, "potencia contratada en kW (2.0TD)")
 		top        = flag.Int("top", 20, "número de ofertas a mostrar")
 
@@ -65,6 +65,10 @@ func main() {
 		cs.Annual, cs.P1, cs.P2, cs.P3, info.Rows, info.Holes, info.EstimatedPct)
 
 	// 2. Producción FV: o bien CSV real (-prod), o bien estimación PVGIS (-kwp).
+	// Si la curva de consumo YA trae excedentes reales (Datadis / CCH 7 columnas),
+	// los datos reales mandan: se omite la estimación PVGIS y -kwp sólo se usa como
+	// potencia instalada de autoconsumo en la consulta CNMC.
+	hasRealSurplus := len(info.Curve.Surplus) > 0
 	var perfil *st.ProductionProfile
 	var autoResult st.AutoconsumptionResult
 	var prodCurve map[time.Time]float64 // curva de producción para la simulación de excedentes
@@ -79,6 +83,8 @@ func main() {
 		fmt.Fprintf(os.Stderr, "Producción real: %.0f kWh/año | autoconsumo %.0f kWh (%.0f%%) | excedentes %.0f kWh | cobertura %.0f%%\n",
 			autoResult.ProductionKWh, autoResult.SelfConsumedKWh, autoResult.SelfConsumRatio*100,
 			autoResult.SurplusKWh, autoResult.Coverage*100)
+	} else if *kwp > 0 && hasRealSurplus {
+		fmt.Fprintln(os.Stderr, "aviso: la curva de consumo ya trae excedentes reales; se omite PVGIS y -kwp se usa sólo como potencia de autoconsumo para la CNMC.")
 	} else if *kwp > 0 {
 		fmt.Fprintf(os.Stderr, "Estimando producción FV con PVGIS (%.2f kWp, lat %.3f lon %.3f, ángulo %.0f aspect %.0f)...\n",
 			*kwp, *lat, *lon, *angle, *aspect)
@@ -134,10 +140,11 @@ func main() {
 	}
 	hasFV := *kwp > 0 || *prodCSV != "" || hasSurplus
 	offersFV, err := st.FetchOffers(st.Query{
-		PostalCode:      *cp,
-		Power:           *potencia,
-		Consumption:     csFV,
-		SelfConsumption: hasFV,
+		PostalCode:           *cp,
+		Power:                *potencia,
+		Consumption:          csFV,
+		SelfConsumption:      hasFV,
+		SelfConsumptionPower: *kwp, // kWp instalada; 0 → se aproxima con la contratada
 	})
 	if err != nil {
 		fatal("CNMC: %v", err)
@@ -166,21 +173,37 @@ func main() {
 		})
 	}
 
+	// Precios horarios de e-sios: una única descarga compartida entre el ranking
+	// neto y la simulación de esquemas (antes se descargaban hasta tres veces, y sin
+	// token cada llamada podría devolver un "último día" distinto).
+	var prices *st.HourlyPrices
+	needPrices := (hasSurplus && len(offersFV) > 0) || (*sim && prodCurve != nil)
+	if needPrices {
+		prices, err = st.FetchHourlyPrices(info.Curve.First, info.Curve.Last)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "aviso: sin precios e-sios; no se calcula el ranking neto ni la simulación de excedentes: %v\n", err)
+			prices = nil
+		}
+	}
+
 	// Ranking integrado: atribuye a cada oferta la compensación de sus excedentes
 	// reales según su comercializadora y ordena por coste NETO anual. Es lo que el
 	// ranking crudo de la CNMC no hace (ignora excedentes).
 	var ranked []st.RankedOffer
-	if hasSurplus && len(offersFV) > 0 {
-		prices, perr := st.FetchHourlyPrices(info.Curve.First, info.Curve.Last)
-		if perr != nil {
-			fmt.Fprintf(os.Stderr, "aviso: sin precios e-sios; no se calcula el ranking neto de excedentes: %v\n", perr)
-		} else {
-			ranked = st.RankOffersWithSurplus(offersFV, gridImport, surplusCurve, prices)
-		}
+	if hasSurplus && len(offersFV) > 0 && prices != nil {
+		ranked = st.RankOffersWithSurplus(offersFV, gridImport, surplusCurve, prices)
+	}
+
+	var schemes []st.SchemeResult
+	if *sim && prodCurve != nil && prices != nil {
+		schemes = st.CompareSchemes(info.Curve.Consumption, prodCurve, prices)
 	}
 
 	if *asJSON {
-		printJSON(offersFV, autoResult, *top, schemesIfSim(*sim, prodCurve, info), ranked)
+		printJSON(jsonInputs{
+			info: info, offers: offersFV, suspect: suspectFV, auto: autoResult,
+			top: *top, schemes: schemes, ranked: ranked, prices: prices,
+		})
 		return
 	}
 	printTaula(offersFV, *top, autoResult, hasFV)
@@ -194,31 +217,12 @@ func main() {
 				offersFV[0].ImportePrimerAnio, offersSinFV[0].ImportePrimerAnio-offersFV[0].ImportePrimerAnio)
 		}
 	}
-	if *sim && prodCurve != nil {
-		printSim(info, prodCurve)
+	if len(schemes) > 0 {
+		printSim(schemes, prices)
 	}
 }
 
-// schemesIfSim ejecuta la simulación de excedentes si -sim está activo; devuelve nil en caso contrario.
-func schemesIfSim(doSim bool, prodCurve map[time.Time]float64, info *st.CCHInfo) []st.SchemeResult {
-	if !doSim || prodCurve == nil {
-		return nil
-	}
-	prices, err := st.FetchHourlyPrices(info.Curve.First, info.Curve.Last)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "aviso (sim): no se han podido obtener precios e-sios: %v\n", err)
-		return nil
-	}
-	return st.CompareSchemes(info.Curve.Consumption, prodCurve, prices)
-}
-
-func printSim(info *st.CCHInfo, prodCurve map[time.Time]float64) {
-	prices, err := st.FetchHourlyPrices(info.Curve.First, info.Curve.Last)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "aviso (sim): %v\n", err)
-		return
-	}
-	res := st.CompareSchemes(info.Curve.Consumption, prodCurve, prices)
+func printSim(res []st.SchemeResult, prices *st.HourlyPrices) {
 	fmt.Println("\n— Simulación de excedentes (término de energía neto, sin fijos) —")
 	fmt.Printf("  fuente precios: PVPC=%s  excedentes=%s\n", prices.PVPC.Source, prices.Surplus.Source)
 	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
@@ -281,24 +285,83 @@ func printTaula(offers []st.Offer, top int, auto st.AutoconsumptionResult, conFV
 	fmt.Printf("\nMostrando %d de %d ofertas.\n", top, len(offers))
 }
 
+// jsonConsumption resume la curva cargada: lo que antes sólo salía por stderr y
+// un agente en modo -json perdía (calidad de los datos: huecos, % estimado, rango).
+type jsonConsumption struct {
+	AnnualKWh       float64 `json:"annual_kwh"`
+	P1KWh           float64 `json:"p1_kwh"`
+	P2KWh           float64 `json:"p2_kwh"`
+	P3KWh           float64 `json:"p3_kwh"`
+	SelfConsumedKWh float64 `json:"self_consumed_kwh"`
+	SurplusKWh      float64 `json:"surplus_kwh"` // excedentes reales de la curva (0 si no hay)
+	Rows            int     `json:"rows"`
+	Holes           int     `json:"holes"`
+	EstimatedPct    float64 `json:"estimated_pct"`
+	FirstDate       string  `json:"first_date"`
+	LastDate        string  `json:"last_date"`
+}
+
+type jsonPriceSource struct {
+	PVPC    string `json:"pvpc"`    // "token" (histórico) o "latest" (un día representativo)
+	Surplus string `json:"surplus"` // ídem para el indicador de excedentes
+}
+
 type jsonOut struct {
+	SchemaVersion   int                      `json:"schema_version"`
+	Consumption     jsonConsumption          `json:"consumption_summary"`
 	Autoconsumption st.AutoconsumptionResult `json:"autoconsumption,omitempty"`
 	NumOfertas      int                      `json:"num_offers"`
 	TopOfertas      []st.Offer               `json:"top_offers"`
+	SuspectOffers   []st.Offer               `json:"suspect_offers,omitempty"` // apartadas por importe no comparable
+	PriceSource     *jsonPriceSource         `json:"price_source,omitempty"`
 	Schemes         []st.SchemeResult        `json:"surplus_schemes,omitempty"`
 	RankingNet      []st.RankedOffer         `json:"ranking_net,omitempty"`
 }
 
-func printJSON(offers []st.Offer, auto st.AutoconsumptionResult, top int, schemes []st.SchemeResult, ranked []st.RankedOffer) {
-	if top > len(offers) {
-		top = len(offers)
+type jsonInputs struct {
+	info    *st.CCHInfo
+	offers  []st.Offer
+	suspect []st.Offer
+	auto    st.AutoconsumptionResult
+	top     int
+	schemes []st.SchemeResult
+	ranked  []st.RankedOffer
+	prices  *st.HourlyPrices
+}
+
+func printJSON(in jsonInputs) {
+	top := in.top
+	if top > len(in.offers) {
+		top = len(in.offers)
 	}
-	if top > len(ranked) {
-		ranked = ranked[:len(ranked)]
-	} else {
+	ranked := in.ranked
+	if len(ranked) > top {
 		ranked = ranked[:top]
 	}
-	out := jsonOut{Autoconsumption: auto, NumOfertas: len(offers), TopOfertas: offers[:top], Schemes: schemes, RankingNet: ranked}
+	surplusKWh := 0.0
+	for _, v := range in.info.Curve.Surplus {
+		surplusKWh += v
+	}
+	cs := in.info.ConsumptionSummary
+	out := jsonOut{
+		SchemaVersion: 2,
+		Consumption: jsonConsumption{
+			AnnualKWh: cs.Annual, P1KWh: cs.P1, P2KWh: cs.P2, P3KWh: cs.P3,
+			SelfConsumedKWh: cs.SelfConsumedKWh, SurplusKWh: surplusKWh,
+			Rows: in.info.Rows, Holes: in.info.Holes, EstimatedPct: in.info.EstimatedPct,
+			FirstDate: in.info.Curve.First.Format("2006-01-02"),
+			LastDate:  in.info.Curve.Last.Format("2006-01-02"),
+		},
+		Autoconsumption: in.auto,
+		NumOfertas:      len(in.offers),
+		TopOfertas:      in.offers[:top],
+		SuspectOffers:   in.suspect,
+		Schemes:         in.schemes,
+		RankingNet:      ranked,
+	}
+	if in.prices != nil {
+		out.PriceSource = &jsonPriceSource{PVPC: in.prices.PVPC.Source, Surplus: in.prices.Surplus.Source}
+	}
 	enc := json.NewEncoder(os.Stdout)
 	enc.SetIndent("", "  ")
 	enc.Encode(out)

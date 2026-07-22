@@ -54,6 +54,21 @@ func TestPeriodFor_NationalHoliday(t *testing.T) {
 	if got := PeriodFor(treball, nil); got != PeriodValle {
 		t.Errorf("1 de maig 19h: got %s, want Valle", got.Label())
 	}
+	// 15 d'agost de 2025 (Assumpció, divendres): festiu nacional NO substituïble -> Valle
+	assumpcio := time.Date(2025, 8, 15, 11, 0, 0, 0, loc)
+	if got := PeriodFor(assumpcio, nil); got != PeriodValle {
+		t.Errorf("15 d'agost 11h: got %s, want Valle (festiu no substituïble)", got.Label())
+	}
+}
+
+// Reis (6 de gener) és festiu SUBSTITUÏBLE: segons la Circular 3/2020 CNMC no
+// compta com a valle per a la 2.0TD. El 6/1/2025 és dilluns laborable -> 11h Punta.
+func TestPeriodFor_ReyesNoEsValle(t *testing.T) {
+	loc, _ := time.LoadLocation("Europe/Madrid")
+	reyes := time.Date(2025, 1, 6, 11, 0, 0, 0, loc)
+	if got := PeriodFor(reyes, nil); got != PeriodPunta {
+		t.Errorf("Reis 11h (substituïble, laborable): got %s, want Punta", got.Label())
+	}
 }
 
 func TestPeriodFor_ViernesSanto(t *testing.T) {
@@ -77,10 +92,16 @@ func TestPeriodFor_ViernesSanto(t *testing.T) {
 }
 
 func TestSpanishHolidays_Count(t *testing.T) {
-	// 8 fijos + Viernes Santo = 9 festivos nacionales en 2025
+	// 8 fixos no substituïbles + Divendres Sant = 9 festius (sense Reis, amb Assumpció)
 	f := SpanishHolidays(2025)
 	if len(f) != 9 {
 		t.Errorf("2025: esperaba 9 festivos nacionales, got %d", len(f))
+	}
+	if f[dateKey(2025, time.January, 6)] {
+		t.Errorf("Reis (6 de gener) és substituïble i no hauria de ser al calendari de la tarifa")
+	}
+	if !f[dateKey(2025, time.August, 15)] {
+		t.Errorf("l'Assumpció (15 d'agost) és no substituïble i hauria de ser al calendari")
 	}
 }
 

@@ -47,12 +47,12 @@ func ParseConsumption(path string, holidays HolidayCalendar) (*CCHInfo, error) {
 //
 // Cabecera esperada (orden flexible, se localiza por nombre):
 //
-//	cups,date,time,consumptionKWh,obtainMethod,surplusEnergyKWh,generationEnergyKWh,selfConsumptionEnergyKWh
+//		cups,date,time,consumptionKWh,obtainMethod,surplusEnergyKWh,generationEnergyKWh,selfConsumptionEnergyKWh
 //
-//   - date en formato YYYY/MM/DD
-//   - time "HH:MM" de "01:00" a "24:00" (01:00 = intervalo 00:00-01:00, hora-inicio = HH-1)
-//   - decimales con punto (0.317)
-//   - obtainMethod: "Real" o "Estimada"/"Estimado"
+//	  - date en formato YYYY/MM/DD
+//	  - time "HH:MM" de "01:00" a "24:00" (01:00 = intervalo 00:00-01:00, hora-inicio = HH-1)
+//	  - decimales con punto (0.317)
+//	  - obtainMethod: "Real" o "Estimada"/"Estimado"
 //
 // Devuelve un *CCHInfo equivalente al de ParseCCH para reutilizar el resto del
 // pipeline. Consumption = consumo neto de red; Surplus = excedentes reales;
@@ -177,7 +177,8 @@ func indexDatadisHeader(header []string) datadisIdx {
 
 // parseDatadisDateTime interpreta ("YYYY/MM/DD", "HH:MM") -> instante (inicio de hora)
 // en la zona indicada. Datadis usa "01:00".."24:00" con la hora al FINAL del
-// intervalo, por lo que la hora de inicio es HH-1 (y "24:00" -> 23:00 del mismo día).
+// intervalo ("24:00" -> 23:00 del mismo día), y "25:00" el día del cambio horario
+// de octubre (día de 25 horas). El mapeo lo resuelve hourStart (consumption.go).
 func parseDatadisDateTime(fecha, hora string, loc *time.Location) (time.Time, bool) {
 	fecha = strings.TrimSpace(fecha)
 	hora = strings.TrimSpace(hora)
@@ -198,10 +199,10 @@ func parseDatadisDateTime(fecha, hora string, loc *time.Location) (time.Time, bo
 		hh = hh[:i]
 	}
 	h, err := strconv.Atoi(hh)
-	if err != nil || h < 1 || h > 24 {
+	if err != nil {
 		return time.Time{}, false
 	}
-	return time.Date(y, time.Month(m), d, h-1, 0, 0, 0, loc), true
+	return hourStart(y, time.Month(m), d, h, loc)
 }
 
 // parseDotFloat parsea un número con punto decimal (formato Datadis). Tolera coma

@@ -52,6 +52,20 @@ func TestParsePVGISTime(t *testing.T) {
 	}
 }
 
+// parsePVGISTime no ha de fer panic amb cadenes curtes (dada remota): el format
+// vàlid té 13 caràcters mínim ("YYYYMMDD:HHMM").
+func TestParsePVGISTime_CadenesCurtes(t *testing.T) {
+	for _, s := range []string{"", "20210101", "20210101:0", "20210101:00", "20210101:001"} {
+		if _, _, ok := parsePVGISTime(s); ok {
+			t.Errorf("parsePVGISTime(%q) hauria de ser invàlid", s)
+		}
+	}
+	m, h, ok := parsePVGISTime("20210615:1310")
+	if !ok || m != 5 || h != 13 {
+		t.Errorf("parsePVGISTime vàlid: got (mes=%d, hora=%d, ok=%v), want (5, 13, true)", m, h, ok)
+	}
+}
+
 // TestFetchPVGISProfile_Live: test d'integració contra PVGIS (Barcelona, 3.5 kWp).
 func TestFetchPVGISProfile_Live(t *testing.T) {
 	if v := testEnv("SOLARTRACK_SKIP_LIVE"); v != "" {
