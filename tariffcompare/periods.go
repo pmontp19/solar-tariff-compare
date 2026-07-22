@@ -1,7 +1,7 @@
-// Package solartrack compara tarifas de electricidad españolas desde el API
+// Package tariffcompare compara tarifas de electricidad españolas desde el API
 // pública de la CNMC frente a una curva de consumo real, opcionalmente con
 // autoconsumo fotovoltaico.
-package solartrack
+package tariffcompare
 
 import "time"
 

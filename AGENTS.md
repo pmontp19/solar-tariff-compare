@@ -23,7 +23,7 @@ CSV real):
 
 ```
 cmd/solar-tariff-compare/main.go   # CLI: flags, orquestación, salida (tabla / JSON)
-solartrack/
+tariffcompare/
   periods.go       # clasificación P1/P2/P3, festivos nacionales no sustituibles, Pascua
   consumption.go   # parser CCH e-distribución (5 y 7 columnas); hourStart (mapeo DST)
   datadis.go       # parser Datadis (auto-detectado); reusa hourStart
@@ -75,12 +75,12 @@ Cada `.go` tiene su `_test.go`. Los tests de integración se llaman `*_Live`.
 
 ```bash
 go test ./... -skip _Live            # rápidos (sin red) — usa esto normalmente
-SOLARTRACK_SKIP_LIVE=1 go test ./... # equivalente vía env var
+TARIFFCOMPARE_SKIP_LIVE=1 go test ./... # equivalente vía env var
 go test ./...                        # TODOS, incluidos *_Live (red: CNMC + PVGIS + e-sios)
 ```
 
 Los `*_Live` se ejecutan **por defecto**; hay que saltarlos explícitamente. Un valor
-vacío (`SOLARTRACK_SKIP_LIVE=`) NO salta (el código sólo mira si la var no está vacía).
+vacío (`TARIFFCOMPARE_SKIP_LIVE=`) NO salta (el código sólo mira si la var no está vacía).
 
 ## Dependencias externas y red
 

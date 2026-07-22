@@ -1,6 +1,6 @@
 # Revisió: tractament de l'autoconsum i els excedents
 
-Revisió centrada en per què la comparativa "no té gaire en compte el factor autoconsum" i com integrar-ho amb dades reals (Datadis / inversor Huawei). Feta sobre `solartrack/{excedents,production,consumption,cnmc}.go`, README i AGENTS.md.
+Revisió centrada en per què la comparativa "no té gaire en compte el factor autoconsum" i com integrar-ho amb dades reals (Datadis / inversor Huawei). Feta sobre `tariffcompare/{excedents,production,consumption,cnmc}.go`, README i AGENTS.md.
 
 ## El que ja està bé
 
@@ -57,7 +57,7 @@ Ja està ben advertit a AGENTS.md: sense token, e-sios només dona l'últim dia 
 ## Registre d'excedents revisat (juliol 2026)
 
 Termes recopilats de webs oficials + comparadors (data de consulta 2026-07-12) i codificats a
-`solartrack/ranking.go` (`RetailerRegistry`). El model actual encara **no** té un `SchemeType`
+`tariffcompare/ranking.go` (`RetailerRegistry`). El model actual encara **no** té un `SchemeType`
 de "monedero en euros": els wallets s'aproximen amb `SchemeVirtualBattery + CeilingAnnual`, que
 posa el sostre sobre `ImportePrimerAnio` de la CNMC (energia + potència + impostos) → funciona com
 a tope a la factura completa. Confiança: A=alta, M=mitjana, B=baixa.

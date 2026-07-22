@@ -21,7 +21,7 @@ import (
 	"text/tabwriter"
 	"time"
 
-	st "github.com/pmontp19/solar-tariff-compare/solartrack"
+	st "github.com/pmontp19/solar-tariff-compare/tariffcompare"
 )
 
 func main() {

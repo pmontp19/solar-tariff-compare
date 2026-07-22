@@ -34,7 +34,7 @@ src="$repo_root/cmd/solar-tariff-compare/main.go"
 needs_build=0
 if [[ ! -x "$bin" ]]; then
   needs_build=1
-elif [[ -n "$(find "$repo_root/cmd" "$repo_root/solartrack" -name '*.go' -newer "$bin" -print -quit 2>/dev/null)" ]]; then
+elif [[ -n "$(find "$repo_root/cmd" "$repo_root/tariffcompare" -name '*.go' -newer "$bin" -print -quit 2>/dev/null)" ]]; then
   needs_build=1
 fi
 if [[ "$needs_build" == "1" ]]; then

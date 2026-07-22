@@ -1,4 +1,4 @@
-package solartrack
+package tariffcompare
 
 import (
 	"testing"
@@ -68,7 +68,7 @@ func TestParsePVGISTime_CadenesCurtes(t *testing.T) {
 
 // TestFetchPVGISProfile_Live: test d'integració contra PVGIS (Barcelona, 3.5 kWp).
 func TestFetchPVGISProfile_Live(t *testing.T) {
-	if v := testEnv("SOLARTRACK_SKIP_LIVE"); v != "" {
+	if v := testEnv("TARIFFCOMPARE_SKIP_LIVE"); v != "" {
 		t.Skip("test d'integració saltat")
 	}
 	perfil, err := FetchPVGISProfile(PVGISParams{

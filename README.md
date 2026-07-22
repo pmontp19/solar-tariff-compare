@@ -12,7 +12,7 @@ A diferencia del comparador web de la CNMC, esta herramienta:
 - Lee directamente tu CSV de curva horaria (CCH de e-distribución o Datadis) y agrega el consumo en los períodos P1/P2/P3 de la tarifa **2.0TD**, teniendo en cuenta festivos nacionales y fines de semana.
 - Estima la producción fotovoltaica con [PVGIS](https://re.jrc.ec.europa.eu/) (Comisión Europea) y calcula el autoconsumo hora a hora sobre tu consumo real.
 - Muestra las ofertas ordenadas por `importePrimerAnio` (coste bruto del primer año).
-- Además, produce un **ranking neto** que atribuye a cada oferta la compensación de excedentes que le aplica su comercializadora (registro editable en `solartrack/ranking.go`) y ordena por coste neto `importePrimerAnio − compensación + cuota`.
+- Además, produce un **ranking neto** que atribuye a cada oferta la compensación de excedentes que le aplica su comercializadora (registro editable en `tariffcompare/ranking.go`) y ordena por coste neto `importePrimerAnio − compensación + cuota`.
 
 ## ⚠️ Limitaciones
 
@@ -110,7 +110,7 @@ Un precio negativo nunca genera compensación negativa (se recorta a 0).
 
 ## Ranking neto con excedentes (atribuido por comercializadora)
 
-Más allá de la simulación genérica por esquema, la herramienta produce un **ranking neto** que atribuye a cada oferta de la CNMC la compensación de excedentes según el `RetailerRegistry` de `solartrack/ranking.go` (editable; precios y condiciones revisados en julio 2026). Cada entrada captura:
+Más allá de la simulación genérica por esquema, la herramienta produce un **ranking neto** que atribuye a cada oferta de la CNMC la compensación de excedentes según el `RetailerRegistry` de `tariffcompare/ranking.go` (editable; precios y condiciones revisados en julio 2026). Cada entrada captura:
 
 - `Price`: €/kWh fijo (o 0 si usa precio horario / precio de consumo).
 - `CeilingAnnual`: `true` para baterías virtuales y wallets (arrastra saldo entre meses y compensa la factura completa); `false` para compensación simplificada regulada.
@@ -176,7 +176,7 @@ Véase [`docs/CNMC-API.md`](docs/CNMC-API.md) para el reverse engineering del AP
 
 ```bash
 go test ./... -skip _Live               # tests rápidos (sin red)
-SOLARTRACK_SKIP_LIVE=1 go test ./...    # equivalente, vía variable de entorno
+TARIFFCOMPARE_SKIP_LIVE=1 go test ./...    # equivalente, vía variable de entorno
 go test ./...                           # TODOS, incluidos integración (red: CNMC + PVGIS + e-sios)
 ```
 

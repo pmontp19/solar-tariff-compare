@@ -1,14 +1,14 @@
-package solartrack
+package tariffcompare
 
 import (
 	"testing"
 )
 
 // TestFetchOffers_Live és un test d'integració que fa una crida real a la CNMC.
-// Saltar-lo amb: SOLARTRACK_SKIP_LIVE=1 go test ./...
+// Saltar-lo amb: TARIFFCOMPARE_SKIP_LIVE=1 go test ./...
 func TestFetchOffers_Live(t *testing.T) {
-	if v := testEnv("SOLARTRACK_SKIP_LIVE"); v != "" {
-		t.Skip("test d'integració saltat (SOLARTRACK_SKIP_LIVE)")
+	if v := testEnv("TARIFFCOMPARE_SKIP_LIVE"); v != "" {
+		t.Skip("test d'integració saltat (TARIFFCOMPARE_SKIP_LIVE)")
 	}
 	q := Query{
 		PostalCode: "8001",

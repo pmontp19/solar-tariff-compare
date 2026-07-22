@@ -1,7 +1,7 @@
 # Registro de comercializadoras y control de vigencia
 
 La CNMC devuelve `importePrimerAnio` pero **no** los términos de excedentes. Esos viven en
-`RetailerRegistry` (fichero `solartrack/ranking.go` del repo), atribuidos por nombre de
+`RetailerRegistry` (fichero `tariffcompare/ranking.go` del repo), atribuidos por nombre de
 comercializadora. Es la pieza que puede quedar desactualizada.
 
 ## Control de frescura (hazlo siempre)
@@ -50,7 +50,7 @@ es que esa oferta no tiene términos específicos codificados.
 ## Cómo actualizar el registro
 
 Es código, no un JSON externo (aún). Para cambiar un precio: edita `RetailerRegistry` en
-`solartrack/ranking.go`, ajusta el test `TestRetailerRegistry_FeeExpiryThrottle` si cambian
+`tariffcompare/ranking.go`, ajusta el test `TestRetailerRegistry_FeeExpiryThrottle` si cambian
 cuotas/topes/caducidades, y `go test ./... -skip _Live`. Fuentes primarias: la web oficial
 de cada compañía (sección autoconsumo/excedentes/batería virtual). Documenta el cambio en
 `docs/REVIEW-autoconsum.md` con fecha y fuente.
