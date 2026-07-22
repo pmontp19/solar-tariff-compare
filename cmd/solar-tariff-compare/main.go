@@ -26,7 +26,7 @@ import (
 
 func main() {
 	var (
-		consumPath = flag.String("consum", "", "fichero CSV de la curva horaria (CCH e-distribución) [obligatorio]")
+		consumPath = flag.String("consum", "", "fichero CSV de la curva horaria (CCH e-distribución o Datadis; auto-detectado) [obligatorio]")
 		cp         = flag.String("cp", "", "código postal (acepta 08001 o 8001) [obligatorio]")
 		potencia   = flag.Float64("potencia", 3.45, "potencia contratada en kW (2.0TD)")
 		top        = flag.Int("top", 20, "número de ofertas a mostrar")

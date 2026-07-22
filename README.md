@@ -34,7 +34,43 @@ cd solar-tariff-compare
 go build -o solar-tariff-compare ./cmd/solar-tariff-compare
 ```
 
+## Cómo obtener tu curva de consumo
+
+Necesitas un CSV con tu curva horaria (un año completo es lo ideal). Dos fuentes:
+
+### Datadis (recomendada, sobre todo con placas)
+
+[Datadis](https://datadis.es) es la plataforma oficial de las distribuidoras y da el
+consumo **neto de red** y, si tienes autoconsumo, los **excedentes reales** hora a hora.
+
+- **Manual**: entra con el NIF del titular → "Descargar datos" → tipo **horario** → elige el
+  CUPS y **12 meses** → descarga el CSV. La herramienta lo auto-detecta.
+- **Automatizado**: el script [`datadis-download.sh`](.claude/skills/solar-tariff-compare/scripts/datadis-download.sh)
+  hace login, lista tus suministros y baja la curva ya en el formato correcto
+  (necesita `curl` y `jq`):
+
+  ```bash
+  export DATADIS_USER="12345678Z"   # NIF del titular
+  export DATADIS_PASS="********"     # contraseña de Datadis
+  .claude/skills/solar-tariff-compare/scripts/datadis-download.sh --months 12 --out datadis.csv
+  ```
+
+### Oficina virtual de tu distribuidora (CCH)
+
+Si no usas Datadis, tu distribuidora (e-distribución, i-DE, UFD, e-redes...) ofrece la
+**curva de carga horaria (CCH)** en su oficina virtual. La variante de 7 columnas (con
+`AS_KWh` y `AE_AUTOCONS_kWh`, que aparece al tener placas) trae también los excedentes.
+
+Detalle del formato de cada CSV más abajo, en [Formato del CSV](#formato-del-csv-cch-o-datadis).
+
+> ⚠️ Tu curva horaria revela cuándo hay gente en casa. Trátala como dato sensible: el
+> análisis es **local**; no la subas a servicios externos.
+
 ## Uso
+
+> Puedes usar el binario directamente (como en los ejemplos) o el wrapper
+> [`compare.sh`](.claude/skills/solar-tariff-compare/scripts/compare.sh), que compila si
+> hace falta y avisa si falta `curl` o `ESIOS_TOKEN`.
 
 ### Comparativa sólo con consumo real
 
@@ -68,6 +104,27 @@ El JSON (`schema_version: 2`) incluye todo lo que un agente necesita sin leer st
 fechas, excedentes reales), `top_offers`, `suspect_offers` (ofertas apartadas por
 importe no comparable), `price_source` (si los precios e-sios son histórico `token` o
 un día representativo `latest`), `surplus_schemes` (con `-sim`) y `ranking_net`.
+
+## Cómo leer el resultado
+
+1. **Comprueba primero la calidad de los datos** (`consumption_summary` en JSON, o la línea
+   de resumen en stderr): si hay muchos `holes`, un `estimated_pct` alto, o el rango de
+   fechas no cubre ~un año, los números son menos fiables.
+2. **Si tienes placas, mira `ranking_net`** (o la tabla "Ranking NETO"): ordena las ofertas
+   por coste neto anual = importe CNMC − compensación de tus excedentes + cuota. Es lo único
+   que compara ofertas teniendo en cuenta *tus* excedentes con *su* esquema. La tabla normal
+   (`top_offers`) es el coste **bruto**, sin compensar excedentes: úsala si no tienes placas.
+3. **Con `-sim`, `surplus_schemes` explica *por qué*** gana un esquema. Regla práctica: con
+   **mucho excedente** (autoconsumo < 40 %, cobertura < 50 %) suele ganar la **batería
+   virtual**, que valora el excedente al precio de consumo y arrastra saldo anual.
+4. **Caveats** que conviene tener presentes: los términos de excedentes por comercializadora
+   son un registro **aproximado revisado en julio 2026** (verifica precio y condiciones en la
+   web de la compañía antes de contratar); si `price_source` es `latest` los absolutos son
+   orientativos (fíate del orden); `surplus_schemes` es sólo término de energía, no la factura
+   final. La herramienta **no decide por ti**: te da los números.
+
+Para conducir todo el flujo (recopilar datos → ejecutar → interpretar) con un agente, está la
+skill [`.claude/skills/solar-tariff-compare`](.claude/skills/solar-tariff-compare/SKILL.md).
 
 ## Flags
 
