@@ -55,39 +55,54 @@ type SurplusTerms struct {
 // metadata informativa que no recorta el número de primer año) y topes tipo el 40% del
 // consumo anual de Repsol (ThrottleFraction, aplicado en surplusCredit).
 var RetailerRegistry = map[string]SurplusTerms{
-	// Octopus: CORREGIDO. No es una batería a 0,03 €/kWh con tope, sino un monedero en
-	// euros sin caducidad que compensa la factura entera (incluida la potencia). El precio
-	// depende de quién instaló los paneles: 0,07 €/kWh si instala Octopus, 0,04 €/kWh en
-	// otro caso. Usamos 0,04 (conservador). Nota: el contrato ACTUAL del usuario es 0,03
-	// €/kWh (tarifa antigua), infravalorado frente al mercado actual.
-	"octopus": {Name: "Octopus Solar Wallet (monedero €, sin caducidad, incl. potencia)", Type: SchemeVirtualBattery, Price: 0.04, CeilingAnnual: true},
+	// Octopus: VERIFICADO 2026-07-23 (octopusenergy.es/solar-wallet). Monedero en euros
+	// sin caducidad que compensa la factura entera (incluida la potencia). Pago 0,035 €/kWh
+	// (o 0,07 si Octopus instaló los paneles). Tope de 1.000 kWh/mes de ingreso al wallet
+	// (sólo tras factura 0€; no afecta al año 1). Usamos 0,035.
+	"octopus": {Name: "Octopus Solar Wallet (monedero €, sin caducidad, incl. potencia; 0,035 €/kWh)", Type: SchemeVirtualBattery, Price: 0.035, CeilingAnnual: true},
 
-	// Holaluz: sin €/kWh oficial único; usa una cuota anual personalizada, ~equivalente a
-	// valorar el excedente al precio de consumo. Compensa la factura entera.
-	"holaluz": {Name: "Holaluz Cloud (batería virtual, cuota anual ~ precio de consumo)", Type: SchemeVirtualBattery, CeilingAnnual: true, AtConsumptionPrice: true},
+	// Holaluz: verificado 2026-07-23 (holaluz.com/placas-solares/tarifa-autoconsumo-con-
+	// excedentes). La "Tarifa Clásica Cloud" compra los excedentes a 0,05 €/kWh fijos (tope
+	// mensual). La "Tarifa Justa Cloud" (cuota mensual plana, batería anual) no publica
+	// €/kWh y queda sin modelar; requiere presupuesto personalizado.
+	"holaluz": {Name: "Holaluz Clásica Cloud (0,05 €/kWh fijos, tope mensual)", Type: SchemeIndexed, Price: 0.05, CeilingAnnual: false},
 
 	// Naturgy: 0,06 €/kWh CONFIRMADO. Modela el add-on gratuito "Batería Virtual"
 	// (compensa la factura entera); la tarifa por defecto sin optar es tope mensual sin
 	// arrastre. El saldo de la batería caduca a los 5 años.
 	"naturgy": {Name: "Naturgy Batería Virtual (opt-in gratis, caduca a 5 años)", Type: SchemeVirtualBattery, Price: 0.06, CeilingAnnual: true, ExpiryMonths: 60},
 
-	// TotalEnergies: CONFIRMADO sin cambios. 0,07 €/kWh fijo, tope mensual al término de
-	// energía, sin batería, nunca compensa los términos fijos.
-	"totalenergies":  {Name: "TotalEnergies Siempre Solar", Type: SchemeIndexed, Price: 0.07, CeilingAnnual: false},
-	"total energies": {Name: "TotalEnergies Siempre Solar", Type: SchemeIndexed, Price: 0.07, CeilingAnnual: false},
+	// TotalEnergies: verificado 2026-07-23 (totalenergies.es/.../compensacion-excedentes).
+	// 0,07 €/kWh fijos, compensación simplificada (RD 244/2019), tope mensual al término de
+	// energía, sin batería, nunca compensa los términos fijos. La compensación aplica sobre
+	// las tarifas vigentes (A Tu Aire, Plan Ahora, 4 Estaciones...).
+	"totalenergies":  {Name: "TotalEnergies (compensación simplificada, 0,07 €/kWh fijos, tope mensual)", Type: SchemeRegulated, Price: 0.07, CeilingAnnual: false},
+	"total energies": {Name: "TotalEnergies (compensación simplificada, 0,07 €/kWh fijos, tope mensual)", Type: SchemeRegulated, Price: 0.07, CeilingAnnual: false},
 
-	// Repsol: modela Vivit Batería Virtual (0,06 €/kWh, sin caducidad, compensa luz+gas).
-	// Cuota de 1,99 €/mes y tope del 40% del consumo anual (penaliza justo a los perfiles
-	// con muchos excedentes, el usuario objetivo de esta herramienta).
-	"repsol": {Name: "Repsol Vivit (batería virtual, 1,99 €/mes, tope 40% consumo)", Type: SchemeVirtualBattery, Price: 0.06, CeilingAnnual: true, MonthlyFee: 1.99, ThrottleFraction: 0.40},
+	// Repsol: verificado 2026-07-23 (repsol.es/.../tarifa-bateria-virtual + blog
+	// 2026-06-16). Vivit Batería Virtual: 0,06 €/kWh, 1,99 €/mes, compensa luz+gas, sin
+	// caducidad, sin tope documentado (el blog indica "no existe un límite de
+	// almacenamiento").
+	"repsol": {Name: "Repsol Vivit Batería Virtual (0,06 €/kWh, 1,99 €/mes, sin caducidad, sin tope documentado)", Type: SchemeVirtualBattery, Price: 0.06, CeilingAnnual: true, MonthlyFee: 1.99, ThrottleFraction: 0},
 
-	// Nabalia: es Tarifa Solar Flex, precio FIJO 0,095 €/kWh a 12 meses (no indexado por
-	// hora; SchemeIndexed es inocuo aquí porque Price>0 anula la fórmula del coeficiente).
-	"nabalia": {Name: "Nabalia Tarifa Solar Flex (fijo 0,095 €/kWh 12 meses)", Type: SchemeIndexed, Price: 0.095, CeilingAnnual: false},
+	// Nabalia: verificado 2026-07-23 sobre las Condiciones Generales oficiales (PDF
+	// assets.nabaliaenergia.com/COND-GENERALES-NABALIA.pdf, 2025-11-19). La compensación
+	// simplificada por defecto paga 0,08 €/kWh fijos (80 €/MWh, cláusula 10), tope mensual
+	// sobre el término de energía, permanencia 12 meses. La "Batería Virtual / monedero
+	// solar" es un opt-in a precio de mercado (OMIE − margen) con saldo sin caducidad y
+	// cuota mensual; sin €/kWh publicado, queda sin modelar.
+	"nabalia": {Name: "Nabalia (compensación simplificada, 0,08 €/kWh fijos, tope mensual)", Type: SchemeRegulated, Price: 0.08, CeilingAnnual: false},
 
 	// --- Comercializadoras secundarias con evidencia razonable (julio 2026) ---
 	"endesa":    {Name: "Endesa Solar Plus + Batería Virtual (2 €/mes)", Type: SchemeVirtualBattery, Price: 0.06, CeilingAnnual: true, MonthlyFee: 2.0},
-	"iberdrola": {Name: "Iberdrola Solar Cloud (batería virtual gratis, saldo 24 meses)", Type: SchemeVirtualBattery, Price: 0.06, CeilingAnnual: true, ExpiryMonths: 24},
+	// Iberdrola: VERIFICADO 2026-07-23. Solar Cloud compensa a ~0,06 €/kWh FIXOS (3
+	// comparadores convergen: tarifasgasluz act. 23/06/26, selectra, solarbalcon act.
+	// 15/07/26). La web oficial dice "al precio asociado al plan", pero significa el precio
+	// de excedente escrito en el plan, NO el precio de consumo (consum es 0,12-0,24 €/kWh).
+	// Batería virtual gratis: sostre anual sobre toda la factura (energía+potencia+peajes,
+	// no impuestos), saldo 24 meses, tope de acumulación 1.000 €/mes (no modelable con
+	// ThrottleFraction; reflejado en el nombre).
+	"iberdrola": {Name: "Iberdrola Solar Cloud (0,06 €/kWh, gratis, 24 meses, tope 1.000 €/mes)", Type: SchemeVirtualBattery, Price: 0.06, CeilingAnnual: true, ExpiryMonths: 24},
 	// Gana Energía: gratis el 1r año → para el número de PRIMER año (el que modela
 	// ImportePrimerAnio/RankOffersWithSurplus) la cuota es 0; después pasa a ~2,1 €/mes,
 	// pero eso ya no afecta al año 1 y por eso no se penaliza aquí.

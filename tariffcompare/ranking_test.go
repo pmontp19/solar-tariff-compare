@@ -349,7 +349,7 @@ func TestRetailerRegistry_FeeExpiryThrottle(t *testing.T) {
 		wantExpiryMonths int
 		wantThrottle     float64
 	}{
-		{"repsol", 1.99, 0, 0.40},
+		{"repsol", 1.99, 0, 0}, // tope 40% eliminat: no corroborat, Repsol diu "sin límite"
 		{"endesa", 2.0, 0, 0},
 		{"naturgy", 0, 60, 0},
 		{"iberdrola", 0, 24, 0},

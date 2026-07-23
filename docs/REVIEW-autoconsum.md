@@ -56,7 +56,7 @@ Ja està ben advertit a AGENTS.md: sense token, e-sios només dona l'últim dia 
 
 ## Registre d'excedents revisat (juliol 2026)
 
-Termes recopilats de webs oficials + comparadors (data de consulta 2026-07-12) i codificats a
+Termes recopilats de webs oficials + comparadors (consulta 2026-07-12, **verificació 2026-07-23** amb subagents sobre webs oficials) i codificats a
 `tariffcompare/ranking.go` (`RetailerRegistry`). El model actual encara **no** té un `SchemeType`
 de "monedero en euros": els wallets s'aproximen amb `SchemeVirtualBattery + CeilingAnnual`, que
 posa el sostre sobre `ImportePrimerAnio` de la CNMC (energia + potència + impostos) → funciona com
@@ -64,25 +64,25 @@ a tope a la factura completa. Confiança: A=alta, M=mitjana, B=baixa.
 
 | Comercialitzadora | Esquema | €/kWh | Sostre | Caducitat | Quota | Font | Conf. |
 |---|---|---|---|---|---|---|---|
-| Octopus (Solar Wallet) | monedero € (VB+anual) | 0,04 (0,07 si instal·la Octopus) | factura sencera | sense | gratis | [octopusenergy.es/solar-wallet](https://octopusenergy.es/solar-wallet), tarifasgasluz, papernest | M-A |
-| Holaluz (Cloud) | bateria virtual (quota anual ~ preu consum) | quota personalitzada | factura sencera | sense (excedent anual es paga en efectiu) | gratis | [holaluz.com/virtual-battery](https://www.holaluz.com/en/solar-panels/virtual-battery) | M |
+| Octopus (Solar Wallet) | monedero € (VB+anual) | **0,035** (0,07 si instal·la Octopus) | factura sencera | sense | gratis | [octopusenergy.es/solar-wallet](https://octopusenergy.es/solar-wallet) | A |
+| Holaluz (Clásica Cloud) | simplificada fixa | **0,05** | mensual (energia) | — | gratis | [holaluz.com/placas-solares/tarifa-autoconsumo-con-excedentes](https://www.holaluz.com/placas-solares/tarifa-autoconsumo-con-excedentes) | A |
 | Naturgy (Batería Virtual, opt-in) | bateria virtual | 0,06 | factura sencera | **5 anys** | gratis | [naturgy.es/bateria_virtual](https://www.naturgy.es/hogar/solar/bateria_virtual) | A |
-| TotalEnergies (Siempre Solar) | simplificada fixa | 0,07 | mensual (energia) | — | — | [totalenergies.es](https://www.totalenergies.es/es/hogares/autoconsumo-solar/compensacion-excedentes) | A |
-| Repsol (Vivit Batería Virtual) | bateria virtual | 0,06 | llum+gas | sense | **1,99 €/mes** + tope 40% consum anual | [repsol.es/…/tarifa-bateria-virtual](https://www.repsol.es/particulares/hogar/energia-solar/tarifas/tarifa-bateria-virtual/) | M-A |
-| Nabalia (Solar Flex) | preu fix 12 mesos | 0,095 | mensual (energia) | — | permanència 12m | roams.es, comparadors | M |
-| Endesa (Solar Plus + BV) | bateria virtual | 0,06 | factura | — | **2 €/mes** | [endesa.com](https://www.endesa.com/es/luz-y-gas/catalogo-solar/endesa-solar-plus-bateria-virtual) | M-A |
-| Iberdrola (Solar Cloud) | bateria virtual | 0,06 | factura (~1.000 kWh/mes) | **24 mesos** | gratis | tarifasgasluz | M |
-| Gana Energía (Monedero) | monedero € | 0,06 | factura | sense (es paga si marxes) | gratis 12m, després ~2,1 €/mes | [ganaenergia.com](https://ganaenergia.com/blog/compensacion-excedentes-gana-energia/) | M-A |
-| Som Energia | simplificada cooperativa (sense marge) | 0,03 fix (2.0TD, des de l'1 de maig 2026) | mensual | — | — | [somenergia.coop](https://www.somenergia.coop/) | M |
+| TotalEnergies | simplificada fixa | 0,07 | mensual (energia) | — | — | [totalenergies.es](https://www.totalenergies.es/es/hogares/autoconsumo-solar/compensacion-excedentes) | A |
+| Repsol (Vivit Batería Virtual) | bateria virtual | 0,06 | llum+gas | sense | **1,99 €/mes** | [repsol.es/…/tarifa-bateria-virtual](https://www.repsol.es/particulares/hogar/energia-solar/tarifas/tarifa-bateria-virtual/) | A |
+| Nabalia | compensació simplificada | **0,08** | mensual (energia) | — | permanència 12m | Condicions Generals (PDF 19/11/25) | A |
+| Endesa (Solar Plus + BV) | bateria virtual | 0,06 | factura | — | **2 €/mes** | [endesa.com](https://www.endesa.com/es/luz-y-gas/catalogo-solar/endesa-solar-plus-bateria-virtual) | A |
+| Iberdrola (Solar Cloud) | bateria virtual | 0,06 | factura | **24 mesos** | gratis | tarifasgasluz (act. 23/06/26), selectra, solarbalcon (15/07/26) | A |
+| Gana Energía (Monedero) | monedero € | 0,06 | factura | sense (es paga si marxes) | gratis 12m, després ~2,1 €/mes | [ganaenergia.com](https://ganaenergia.com/blog/compensacion-excedentes-gana-energia/) | A |
+| Som Energia | simplificada cooperativa (sense marge) | 0,03 fix (2.0TD, des de l'1 de maig 2026) | mensual | — | — | [somenergia.coop](https://www.somenergia.coop/) | A |
 
-**Correccions clau vs. el registre inicial:**
-- **Octopus**: era 0,03 €/kWh amb tope → **incorrecte**. És un monedero en euros sense caducitat que
-  compensa la potència; preu real 0,04 (o 0,07 si instal·la Octopus). *Nota: el contracte ACTUAL de
-  l'usuari és 0,03 €/kWh (tarifa antiga), infravalorat vs. el mercat actual.*
-- **Repsol**: el comportament de bateria virtual requereix **1,99 €/mes** i té un **tope del 40%** del
-  consum anual que penalitza justament els perfils amb molts excedents (l'usuari objectiu).
-- **Nabalia**: 0,095 €/kWh és **fix** 12 mesos (Solar Flex), no indexat per hora.
-- **Naturgy**: 0,06 €/kWh confirmat, però només és wallet amb l'add-on opt-in (caduca a 5 anys).
+**Notes per comercialitzadora (verificades 2026-07-23 sobre webs oficials):**
+- **Octopus**: monedero en euros sense caducitat que compensa la factura sencera (potència inclosa). Preu 0,035 €/kWh (0,07 si instal·la Octopus). Tope 1.000 kWh/mes d'ingrés al wallet (només un cop la factura és 0€; no afecta l'any 1).
+- **Holaluz**: la "Tarifa Clásica Cloud" paga 0,05 €/kWh fixos (tope mensual). La "Tarifa Justa Cloud" (cuota plana, sense €/kWh públic) queda sense modelar i requereix pressupost.
+- **Repsol**: Vivit Batería Virtual a 0,06 €/kWh, 1,99 €/mes, compensa llum+gas, sense caducitat, sense tope documentat (el blog indica "no existe un límite de almacenamiento").
+- **TotalEnergies**: 0,07 €/kWh fixos, compensació simplificada (RD 244/2019), tope mensual sobre el terme d'energia. Aplica sobre les tarifas vigents (A Tu Aire, Plan Ahora, 4 Estaciones...).
+- **Nabalia**: compensació simplificada a 0,08 €/kWh fixos (Condicions Generals, PDF 19/11/25), tope mensual, permanència 12m. La "Batería Virtual" (monedero solar) és a preu de mercat OMIE menys marge, sense €/kWh publicat (queda sense modelar).
+- **Iberdrola**: Solar Cloud a 0,06 €/kWh fixos; la web diu "al precio asociado al plan" (el preu d'excedent del pla, no el de consum). Sostre anual sobre tota la factura, gratis, saldo 24 mesos, tope acumulació 1.000 €/mes.
+- **Naturgy**: 0,06 €/kWh; wallet només amb l'add-on opt-in (caduca a 5 anys).
 - **Plenitude i Eleia**: sense xifres fiables per comercialitzadora → cauen en `DefaultSurplusTerms`.
 
 **Ja capturat al model** (camps de `SurplusTerms` a `ranking.go`):
@@ -91,8 +91,7 @@ a tope a la factura completa. Confiança: A=alta, M=mitjana, B=baixa.
   per al número de PRIMER any.
 - `ExpiryMonths`: caducitat del saldo (Naturgy 60, Iberdrola 24). Metadata informativa: una
   caducitat >= 12 mesos no retalla res dins del primer any, així que NO altera `NetAnnualEUR`.
-- `ThrottleFraction`: tope tipus Repsol (40% del consum anual). S'aplica a `surplusCredit`
-  abans del sostre habitual.
+- `ThrottleFraction`: tope sobre `surplusCredit` (p.ex. % del consum anual) aplicat abans del sostre habitual. Cap entrada del registre l'usa actualment; el mecanisme es manté per a futurs topes.
 
 **Correccions posteriors del model** (2026-07, aquesta revisió):
 - **Preu d'excedents 0**: el 1739 val legítimament 0 en moltes hores solars des del 2024.
